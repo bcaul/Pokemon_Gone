@@ -189,7 +189,20 @@ export default function SearchBar() {
               {result.type === 'creature' ? (
                 <div className="flex items-center gap-4">
                   <div className="text-4xl">
-                    {getCreatureEmoji(result.name)}
+                    {getCreatureSprite(result) ? (
+                      <img 
+                        src={getCreatureSprite(result)} 
+                        alt={result.name}
+                        className="w-12 h-12 object-contain"
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                          e.target.nextSibling.style.display = 'block'
+                        }}
+                      />
+                    ) : null}
+                    <span style={{ display: getCreatureSprite(result) ? 'none' : 'inline' }}>
+                      {getCreatureEmoji(result.name)}
+                    </span>
                   </div>
                   <div className="flex-1">
                     <h3 className="font-bold text-white text-lg">{result.name}</h3>

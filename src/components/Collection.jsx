@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
+import { getCreatureSprite } from '../lib/creatureSprites.js'
 
 export default function Collection() {
   const [catches, setCatches] = useState([])
@@ -201,8 +202,28 @@ export default function Collection() {
               key={item.creature.id}
               className={`bg-surface rounded-lg p-4 border-2 ${getRarityColor(item.creature.rarity)}`}
             >
-              <div className="text-6xl text-center mb-3">
-                {getCreatureEmoji(item.creature.name)}
+              <div className="text-center mb-3 flex justify-center items-center h-24">
+                {getCreatureSprite(item.creature) ? (
+                  <img 
+                    src={getCreatureSprite(item.creature)} 
+                    alt={item.creature.name}
+                    className="w-24 h-24 object-contain"
+                    style={{
+                      imageRendering: 'crisp-edges',
+                      WebkitImageRendering: 'crisp-edges',
+                      msImageRendering: 'crisp-edges',
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'block'
+                    }}
+                  />
+                ) : null}
+                <div className="text-6xl" style={{ display: getCreatureSprite(item.creature) ? 'none' : 'block' }}>
+                  {getCreatureEmoji(item.creature.name)}
+                </div>
               </div>
               <h3 className="font-bold text-white text-center mb-1">
                 {item.creature.name}

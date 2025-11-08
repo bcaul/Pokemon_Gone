@@ -5,6 +5,7 @@ import { useCreatures } from '../hooks/useCreatures.js'
 import { checkIfInParkCached, getNearbyParks } from '../lib/overpass.js'
 import { generateSpawns } from '../lib/spawning.js'
 import { getCountryCodeCached } from '../lib/geocoding.js'
+import { getCreatureSprite } from '../lib/creatureSprites.js'
 import CreatureMarker from './CreatureMarker.jsx'
 import CatchModal from './CatchModal.jsx'
 import AIAssistant from './AIAssistant.jsx'
@@ -389,9 +390,58 @@ export default function Map() {
     // Don't set position - let Mapbox handle it
     // Mapbox markers are positioned automatically based on setLngLat
     
-    // Add creature emoji or image
-    const emoji = getCreatureEmoji(creatureType.name)
-    el.innerHTML = `<span style="font-size: 22px; line-height: 1; display: block;">${emoji}</span>`
+    // Add creature sprite or emoji fallback
+    // DEBUG: Log creature type data
+    console.log(`Creating marker for ${creatureType.name}:`, {
+      name: creatureType.name,
+      image_url: creatureType.image_url,
+      hasImageUrl: !!creatureType.image_url,
+      imageUrlType: typeof creatureType.image_url,
+    })
+    
+    const spriteUrl = getCreatureSprite(creatureType)
+    console.log(`Sprite URL for ${creatureType.name}:`, spriteUrl)
+    
+    if (spriteUrl && !spriteUrl.includes('{SPRITE_ID}')) {
+      // Only use sprite URL if it's valid (no placeholder)
+      const img = document.createElement('img')
+      img.alt = creatureType.name
+      img.style.width = '100%'
+      img.style.height = '100%'
+      img.style.objectFit = 'contain'
+      img.style.borderRadius = '50%'
+      // Use crisp-edges for pixel art - prevents blur when scaling
+      img.style.imageRendering = 'crisp-edges'
+      // Fallback for older browsers
+      if (!('imageRendering' in img.style)) {
+        img.style.imageRendering = '-webkit-optimize-contrast'
+      }
+      img.loading = 'eager' // Load immediately
+      
+      // Set error handler FIRST (before src)
+      let errorHandled = false
+      img.onerror = (e) => {
+        if (errorHandled) return // Prevent multiple error handlers
+        errorHandled = true
+        console.warn(`❌ Failed to load sprite for ${creatureType.name}:`, spriteUrl)
+        // Check Network tab in dev tools for actual HTTP error
+        const emoji = getCreatureEmoji(creatureType.name)
+        el.innerHTML = `<span style="font-size: 22px; line-height: 1; display: block;">${emoji}</span>`
+      }
+      
+      img.onload = () => {
+        console.log(`✅ Successfully loaded sprite for ${creatureType.name}:`, spriteUrl)
+      }
+      
+      // Add to DOM and set src
+      el.appendChild(img)
+      img.src = spriteUrl
+    } else {
+      // Fallback to emoji if no valid sprite URL
+      console.warn(`⚠️ No valid sprite URL for ${creatureType.name}. spriteUrl:`, spriteUrl)
+      const emoji = getCreatureEmoji(creatureType.name)
+      el.innerHTML = `<span style="font-size: 22px; line-height: 1; display: block;">${emoji}</span>`
+    }
     
     // Add subtle hover effect (visual only, no action)
     // CRITICAL: Keep border size constant (3px) to prevent position shifts
@@ -430,16 +480,10 @@ export default function Map() {
     return colors[rarity] || colors.common
   }
 
-  // Get creature emoji (fallback until images are added)
+  // Get creature emoji (fallback if sprite fails to load)
   const getCreatureEmoji = (name) => {
-    const emojiMap = {
-      'Beach Buddy': '🌊',
-      'Mountain Mite': '⛰️',
-      'City Slicker': '🏙️',
-      'Forest Friend': '🦌',
-      'Landmark Legend': '🐉',
-    }
-    return emojiMap[name] || '🐾'
+    // Generic fallback emoji for all creatures
+    return '🐾'
   }
 
   const handleCloseModal = useCallback(() => {

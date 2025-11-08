@@ -277,7 +277,7 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
         .from('spawns')
         .select(`
           *,
-          creature_types (*)
+          creature_types (id, name, rarity, type, image_url, region_locked, allowed_countries, base_spawn_rate, park_boost_multiplier)
         `)
         .in('id', spawnIds)
         .gte('expires_at', new Date().toISOString())
@@ -324,6 +324,8 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
             longitude: parsedSpawns[0].longitude,
             latitude: parsedSpawns[0].latitude,
             creature: parsedSpawns[0].creature_types?.name,
+            creatureImageUrl: parsedSpawns[0].creature_types?.image_url,
+            creatureFull: parsedSpawns[0].creature_types,
           })
         }
         
@@ -350,7 +352,7 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
         .from('spawns')
         .select(`
           *,
-          creature_types (*)
+          creature_types (id, name, rarity, type, image_url, region_locked, allowed_countries, base_spawn_rate, park_boost_multiplier)
         `)
         .gte('expires_at', new Date().toISOString())
         .limit(100)

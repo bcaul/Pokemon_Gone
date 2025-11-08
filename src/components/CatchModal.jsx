@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase.js'
+import { getCreatureSprite } from '../lib/creatureSprites.js'
 import { X } from 'lucide-react'
 
 // Calculate distance between two points using Haversine formula
@@ -277,8 +278,28 @@ export default function CatchModal({ creature, userLocation, onClose }) {
 
         {caught ? (
           <div className="text-center py-8">
-            <div className="text-8xl mb-4 animate-catch">
-              {getCreatureEmoji(creatureType.name)}
+            <div className="mb-4 animate-catch flex justify-center">
+              {getCreatureSprite(creatureType) ? (
+                <img 
+                  src={getCreatureSprite(creatureType)} 
+                  alt={creatureType.name}
+                  className="w-32 h-32 object-contain"
+                  style={{
+                    imageRendering: 'crisp-edges',
+                    WebkitImageRendering: 'crisp-edges',
+                    msImageRendering: 'crisp-edges',
+                    backfaceVisibility: 'hidden',
+                    WebkitBackfaceVisibility: 'hidden',
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none'
+                    e.target.nextSibling.style.display = 'block'
+                  }}
+                />
+              ) : null}
+              <div className="text-8xl" style={{ display: getCreatureSprite(creatureType) ? 'none' : 'block' }}>
+                {getCreatureEmoji(creatureType.name)}
+              </div>
             </div>
             <h2 className="text-3xl font-bold text-primary mb-2">Gotcha!</h2>
             <p className="text-xl text-gray-300 mb-4">
@@ -289,8 +310,28 @@ export default function CatchModal({ creature, userLocation, onClose }) {
         ) : (
           <>
             <div className="text-center mb-6">
-              <div className="text-8xl mb-4">
-                {getCreatureEmoji(creatureType.name)}
+              <div className="mb-4 flex justify-center">
+                {getCreatureSprite(creatureType) ? (
+                  <img 
+                    src={getCreatureSprite(creatureType)} 
+                    alt={creatureType.name}
+                    className="w-32 h-32 object-contain"
+                    style={{
+                      imageRendering: 'crisp-edges',
+                      imageRendering: '-webkit-optimize-contrast',
+                      transform: 'scale(1)',
+                      backfaceVisibility: 'hidden',
+                      WebkitBackfaceVisibility: 'hidden',
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'block'
+                    }}
+                  />
+                ) : null}
+                <div className="text-8xl" style={{ display: getCreatureSprite(creatureType) ? 'none' : 'block' }}>
+                  {getCreatureEmoji(creatureType.name)}
+                </div>
               </div>
               <h2 className={`text-3xl font-bold mb-2 ${getRarityColor(creatureType.rarity)}`}>
                 {creatureType.name}
