@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
 
 /**
@@ -9,21 +9,7 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    if (!latitude || !longitude) {
-      setChallenges([])
-      setLoading(false)
-      return
-    }
-
-    fetchChallenges()
-    
-    // Refresh challenges every 30 seconds
-    const interval = setInterval(fetchChallenges, 30000)
-    return () => clearInterval(interval)
-  }, [latitude, longitude, radiusMeters])
-
-  const fetchChallenges = async () => {
+  const fetchChallenges = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -138,7 +124,21 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [latitude, longitude, radiusMeters])
+
+  useEffect(() => {
+    if (!latitude || !longitude) {
+      setChallenges([])
+      setLoading(false)
+      return
+    }
+
+    fetchChallenges()
+    
+    // Refresh challenges every 30 seconds
+    const interval = setInterval(fetchChallenges, 30000)
+    return () => clearInterval(interval)
+  }, [fetchChallenges])
 
   return { challenges, loading, error, refetch: fetchChallenges }
 }
