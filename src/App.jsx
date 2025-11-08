@@ -99,7 +99,7 @@ function App() {
 
 function MapView() {
   return (
-    <div className="flex-1 relative">
+    <div className="flex-1 relative overflow-hidden" style={{ minHeight: 0 }}>
       <Map />
     </div>
   )

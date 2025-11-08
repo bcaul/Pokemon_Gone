@@ -12,7 +12,7 @@ export default function BottomNav() {
   ]
 
   return (
-    <nav className="bg-surface border-t border-gray-700 flex justify-around items-center h-16 px-4 safe-area-bottom">
+    <nav className="bg-surface border-t border-gray-700 flex justify-around items-center h-16 px-4 safe-area-bottom relative z-50">
       {navItems.map((item) => {
         const Icon = item.icon
         const isActive = location.pathname === item.path
@@ -23,7 +23,7 @@ export default function BottomNav() {
             to={item.path}
             className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
               isActive ? 'text-primary' : 'text-gray-400'
-            }`}
+            } hover:text-primary/80`}
           >
             <Icon size={24} />
             <span className="text-xs mt-1">{item.label}</span>

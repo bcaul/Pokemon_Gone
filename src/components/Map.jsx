@@ -166,35 +166,110 @@ export default function Map() {
 
   // Update creature markers
   useEffect(() => {
-    if (!map.current || !mapLoaded || !creatures) return
+    if (!map.current || !mapLoaded) {
+      console.log('Map not ready:', { map: !!map.current, mapLoaded, creatures: creatures?.length })
+      return
+    }
+
+    if (!creatures || creatures.length === 0) {
+      console.log('No creatures to display')
+      // Clear existing markers
+      markersRef.current.forEach(marker => marker.remove())
+      markersRef.current = []
+      return
+    }
+
+    console.log(`Creating markers for ${creatures.length} creatures`)
 
     // Clear existing markers
     markersRef.current.forEach(marker => marker.remove())
     markersRef.current = []
 
     // Add markers for each creature
-    creatures.forEach((spawn) => {
-      if (!spawn.creature_types || !spawn.location) return
+    let markersCreated = 0
+    let markersSkipped = 0
 
-      const [lon, lat] = parseLocation(spawn.location)
-      if (!lat || !lon) return
+    creatures.forEach((spawn, index) => {
+      if (!spawn.creature_types) {
+        console.warn(`Spawn ${index} missing creature_types:`, spawn)
+        markersSkipped++
+        return
+      }
 
-      const marker = new mapboxgl.Marker({
-        element: createMarkerElement(spawn.creature_types),
-      })
-        .setLngLat([lon, lat])
-        .addTo(map.current)
+      if (!spawn.location) {
+        console.warn(`Spawn ${index} missing location:`, spawn)
+        markersSkipped++
+        return
+      }
 
-      marker.getElement().addEventListener('click', () => {
-        setSelectedCreature({
-          ...spawn,
-          latitude: lat,
-          longitude: lon,
+      // Try to get coordinates from spawn object first (if query returned them directly)
+      let lon, lat
+      if (spawn.longitude !== undefined && spawn.latitude !== undefined) {
+        lon = parseFloat(spawn.longitude)
+        lat = parseFloat(spawn.latitude)
+      } else {
+        // Fall back to parsing location string/WKB
+        const coords = parseLocation(spawn.location)
+        if (coords) {
+          lon = coords.lon
+          lat = coords.lat
+        }
+      }
+      
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+        console.warn(`Spawn ${index} invalid coordinates:`, { 
+          location: spawn.location, 
+          longitude: spawn.longitude,
+          latitude: spawn.latitude,
+          parsed: [lon, lat] 
         })
-      })
+        markersSkipped++
+        return
+      }
 
-      markersRef.current.push(marker)
+      // Verify coordinates are reasonable (not 0,0 or extreme values)
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        console.warn(`Spawn ${index} coordinates out of range:`, { lat, lon })
+        markersSkipped++
+        return
+      }
+
+      try {
+        const markerElement = createMarkerElement(spawn.creature_types)
+        const marker = new mapboxgl.Marker({
+          element: markerElement,
+          anchor: 'center',
+        })
+          .setLngLat([lon, lat])
+          .addTo(map.current)
+
+        // Add click event listener (explicit click only, not hover)
+        marker.getElement().addEventListener('click', (e) => {
+          e.stopPropagation() // Prevent map click events
+          e.preventDefault() // Prevent default behavior
+          console.log('Creature marker clicked:', spawn.creature_types.name)
+          console.log('Passing coordinates to modal:', { lat, lon })
+          // Ensure coordinates are correctly passed - use the parsed values
+          setSelectedCreature({
+            ...spawn,
+            latitude: lat, // Parsed latitude
+            longitude: lon, // Parsed longitude
+            // Keep original location for reference
+            location: spawn.location,
+          })
+        })
+
+        markersRef.current.push(marker)
+        markersCreated++
+        
+        console.log(`Created marker ${markersCreated} for ${spawn.creature_types.name} at [${lon}, ${lat}]`)
+      } catch (error) {
+        console.error(`Error creating marker for spawn ${index}:`, error)
+        markersSkipped++
+      }
     })
+
+    console.log(`Marker creation complete: ${markersCreated} created, ${markersSkipped} skipped`)
 
     return () => {
       markersRef.current.forEach(marker => marker.remove())
@@ -202,22 +277,96 @@ export default function Map() {
     }
   }, [creatures, mapLoaded])
 
+  // Parse WKB hex string to coordinates (same as in spawning.js)
+  const parseWKBHex = (hex) => {
+    try {
+      if (!hex || typeof hex !== 'string' || hex.length < 42) {
+        return null
+      }
+      
+      // WKB Extended format with SRID
+      // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
+      const xHex = hex.substring(18, 34) // Longitude (8 bytes)
+      const yHex = hex.substring(34, 50) // Latitude (8 bytes)
+      
+      // Convert hex to Float64 (little endian)
+      const parseDouble = (hexStr) => {
+        const buffer = new ArrayBuffer(8)
+        const view = new DataView(buffer)
+        for (let i = 0; i < 8; i++) {
+          view.setUint8(i, parseInt(hexStr.substr(i * 2, 2), 16))
+        }
+        return view.getFloat64(0, true)
+      }
+      
+      const lon = parseDouble(xHex)
+      const lat = parseDouble(yHex)
+      
+      if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
+        return null
+      }
+      
+      return [lon, lat]
+    } catch (error) {
+      console.error('Error parsing WKB hex:', error)
+      return null
+    }
+  }
+
   // Parse PostGIS geography point
   const parseLocation = (location) => {
+    // Handle WKB hex format (starts with "0101")
+    if (typeof location === 'string' && location.startsWith('0101')) {
+      const coords = parseWKBHex(location)
+      if (coords) return coords
+    }
+    
+    // Handle WKT string format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
     if (typeof location === 'string') {
-      // Format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
+      // Try to match POINT format
       const match = location.match(/POINT\(([^)]+)\)/)
       if (match) {
         const coords = match[1].trim().split(/\s+/)
         if (coords.length >= 2) {
-          return [parseFloat(coords[0]), parseFloat(coords[1])]
+          const lon = parseFloat(coords[0])
+          const lat = parseFloat(coords[1])
+          if (!isNaN(lon) && !isNaN(lat)) {
+            return [lon, lat]
+          }
+        }
+      }
+      // Try to parse as WKT without POINT wrapper
+      const wktMatch = location.match(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)/)
+      if (wktMatch) {
+        const lon = parseFloat(wktMatch[1])
+        const lat = parseFloat(wktMatch[2])
+        if (!isNaN(lon) && !isNaN(lat)) {
+          return [lon, lat]
         }
       }
     }
-    // Handle case where location might be an object with coordinates
-    if (location && typeof location === 'object' && location.coordinates) {
-      return [location.coordinates[0], location.coordinates[1]]
+    
+    // Handle object format from Supabase
+    if (location && typeof location === 'object') {
+      // Check for coordinates array [lon, lat]
+      if (Array.isArray(location.coordinates) && location.coordinates.length >= 2) {
+        return [parseFloat(location.coordinates[0]), parseFloat(location.coordinates[1])]
+      }
+      // Check for x/y properties (lon/lat)
+      if (location.x !== undefined && location.y !== undefined) {
+        return [parseFloat(location.x), parseFloat(location.y)]
+      }
+      // Check for lon/lat properties
+      if (location.lon !== undefined && location.lat !== undefined) {
+        return [parseFloat(location.lon), parseFloat(location.lat)]
+      }
+      // Check for lng/lat properties (common in some APIs)
+      if (location.lng !== undefined && location.lat !== undefined) {
+        return [parseFloat(location.lng), parseFloat(location.lat)]
+      }
     }
+    
+    console.warn('Failed to parse location:', location, typeof location)
     return [null, null]
   }
 
@@ -225,6 +374,8 @@ export default function Map() {
   const createMarkerElement = (creatureType) => {
     const el = document.createElement('div')
     el.className = 'creature-marker'
+    
+    // Marker size - balanced for visibility and layout
     el.style.width = '40px'
     el.style.height = '40px'
     el.style.borderRadius = '50%'
@@ -235,10 +386,34 @@ export default function Map() {
     el.style.justifyContent = 'center'
     el.style.cursor = 'pointer'
     el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+    // Don't set position - let Mapbox handle it
+    // Mapbox markers are positioned automatically based on setLngLat
     
     // Add creature emoji or image
     const emoji = getCreatureEmoji(creatureType.name)
-    el.innerHTML = `<span style="font-size: 20px;">${emoji}</span>`
+    el.innerHTML = `<span style="font-size: 22px; line-height: 1; display: block;">${emoji}</span>`
+    
+    // Add subtle hover effect (visual only, no action)
+    // CRITICAL: Keep border size constant (3px) to prevent position shifts
+    // Changing border size changes element dimensions, causing Mapbox to reposition
+    el.addEventListener('mouseenter', (e) => {
+      e.stopPropagation()
+      // Only change shadow - keep border at 3px (same size)
+      el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.6)'
+      // Keep border at 3px - don't change size!
+      // Use outline for additional visual feedback without affecting size
+      el.style.outline = '2px solid rgba(255,255,255,0.5)'
+      el.style.outlineOffset = '-2px'
+    })
+    el.addEventListener('mouseleave', (e) => {
+      e.stopPropagation()
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+      el.style.outline = 'none'
+      el.style.outlineOffset = '0'
+    })
+    
+    // Add title for accessibility
+    el.title = `Click to catch ${creatureType.name} (${creatureType.rarity})`
     
     return el
   }
@@ -294,8 +469,8 @@ export default function Map() {
   }
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full" />
+    <div className="relative w-full h-full" style={{ position: 'relative', zIndex: 1 }}>
+      <div ref={mapContainer} className="w-full h-full" style={{ position: 'relative', zIndex: 1 }} />
 
       {/* Park boost indicator */}
       {inPark && (
@@ -320,14 +495,36 @@ export default function Map() {
 
       {/* Debug info and manual spawn button (for testing) */}
       {location && (
-        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10 max-w-xs">
-          <div className="text-xs mb-2">
-            <div>Creatures nearby: {creatures?.length || 0}</div>
+        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10 max-w-xs" style={{ zIndex: 10 }}>
+          <div className="text-xs mb-2 space-y-1">
+            <div className="font-bold">Creatures nearby: {creatures?.length || 0}</div>
+            <div className="text-gray-400">
+              Markers created: {markersRef.current.length}
+            </div>
             {spawnDebugInfo && (
               <div className="mt-1 text-gray-400">
-                Last spawn: {spawnDebugInfo.generated || 0} generated
+                <div>Last spawn: {spawnDebugInfo.generated || 0} generated</div>
+                {spawnDebugInfo.inPark && (
+                  <div className="text-green-400">🌳 In park (boosted)</div>
+                )}
+                {spawnDebugInfo.countryCode && (
+                  <div>Country: {spawnDebugInfo.countryCode}</div>
+                )}
                 {spawnDebugInfo.error && (
                   <div className="text-red-400">Error: {spawnDebugInfo.error}</div>
+                )}
+              </div>
+            )}
+            {creatures && creatures.length > 0 && (
+              <div className="mt-2 text-gray-300">
+                <div className="font-semibold mb-1">Creatures:</div>
+                {creatures.slice(0, 3).map((c, i) => (
+                  <div key={i} className="text-xs">
+                    {c.creature_types?.name || 'Unknown'} ({c.creature_types?.rarity || '?'})
+                  </div>
+                ))}
+                {creatures.length > 3 && (
+                  <div className="text-xs text-gray-500">+{creatures.length - 3} more</div>
                 )}
               </div>
             )}

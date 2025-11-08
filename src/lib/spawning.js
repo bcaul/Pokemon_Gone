@@ -77,22 +77,36 @@ export async function generateSpawns(latitude, longitude, radiusMeters = 500, in
       return
     }
 
-    // Generate grid points (100m spacing)
-    const gridSize = Math.ceil((radiusMeters * 2) / 100)
+    // Generate spawns in a smaller radius around user (200m instead of 500m)
+    // This ensures spawns are close enough to catch (within 100m catch range)
+    const spawnRadius = Math.min(radiusMeters, 200) // Cap at 200m for better catchability
+    const gridSpacing = 50 // Smaller spacing for more spawns closer to user
+    const gridSize = Math.ceil((spawnRadius * 2) / gridSpacing)
     const spawns = []
 
     for (let i = 0; i < gridSize; i++) {
       for (let j = 0; j < gridSize; j++) {
-        // Calculate grid point offset
-        const offsetLat = ((i - gridSize / 2) * 100) / 111320 // ~111km per degree latitude
-        const offsetLon = ((j - gridSize / 2) * 100) / (111320 * Math.cos(latitude * Math.PI / 180))
+        // Calculate grid point offset (in meters, then convert to degrees)
+        const offsetMetersLat = (i - gridSize / 2) * gridSpacing
+        const offsetMetersLon = (j - gridSize / 2) * gridSpacing
+        
+        // Convert meters to degrees (approximately)
+        const offsetLat = offsetMetersLat / 111320 // ~111km per degree latitude
+        const offsetLon = offsetMetersLon / (111320 * Math.cos(latitude * Math.PI / 180))
 
         const spawnLat = latitude + offsetLat
         const spawnLon = longitude + offsetLon
 
-        // Random spawn chance (20% base chance per cell - increased for testing)
-        // In production, you might want to reduce this to 5-10%
-        let spawnChance = 0.20
+        // Calculate distance from user to spawn point
+        const distanceFromUser = Math.sqrt(offsetMetersLat ** 2 + offsetMetersLon ** 2)
+        
+        // Only spawn within 150m of user (to ensure catchability within 100m range)
+        if (distanceFromUser > 150) {
+          continue
+        }
+
+        // Random spawn chance (25% base chance per cell - increased for testing)
+        let spawnChance = 0.25
 
         // Park boost (2-3x multiplier)
         if (inPark) {
@@ -113,6 +127,8 @@ export async function generateSpawns(latitude, longitude, radiusMeters = 500, in
         }
       }
     }
+    
+    console.log(`Generated ${spawns.length} spawns within ${spawnRadius}m of user location`)
 
     // Insert spawns into database (PostGIS geography)
     if (spawns.length > 0) {
@@ -253,7 +269,9 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
     })
 
     if (!rpcError && rpcData && rpcData.length > 0) {
+      console.log(`RPC function returned ${rpcData.length} spawns`)
       // Fetch creature types for the spawns
+      // Note: location will be in WKB hex format, which we'll parse
       const spawnIds = rpcData.map(s => s.id)
       const { data: spawnsWithCreatures, error: fetchError } = await supabase
         .from('spawns')
@@ -265,19 +283,128 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
         .gte('expires_at', new Date().toISOString())
 
       if (!fetchError && spawnsWithCreatures) {
-        return spawnsWithCreatures
+        console.log(`Fetched ${spawnsWithCreatures.length} spawns with creature types`)
+        
+        // Parse WKB hex locations to coordinates
+        const parsedSpawns = spawnsWithCreatures.map(spawn => {
+          // If coordinates are already extracted, use them
+          if (spawn.longitude !== undefined && spawn.latitude !== undefined) {
+            return spawn
+          }
+          
+          // Otherwise, parse from location field (WKB hex)
+          if (typeof spawn.location === 'string' && spawn.location.startsWith('0101')) {
+            const coords = parseWKBHex(spawn.location)
+            if (coords) {
+              return {
+                ...spawn,
+                longitude: coords.lon,
+                latitude: coords.lat,
+              }
+            }
+          } else {
+            // Try other formats
+            const coords = parseLocationString(spawn.location)
+            if (coords) {
+              return {
+                ...spawn,
+                longitude: coords.lon,
+                latitude: coords.lat,
+              }
+            }
+          }
+          return spawn
+        })
+        
+        // Log sample spawn for debugging
+        if (parsedSpawns.length > 0) {
+          console.log('Sample spawn:', {
+            id: parsedSpawns[0].id,
+            location: parsedSpawns[0].location?.substring(0, 30) + '...',
+            longitude: parsedSpawns[0].longitude,
+            latitude: parsedSpawns[0].latitude,
+            creature: parsedSpawns[0].creature_types?.name,
+          })
+        }
+        
+        return parsedSpawns
+      } else if (fetchError) {
+        console.warn('Error fetching spawns with creature types:', fetchError)
       }
+    } else if (rpcError) {
+      console.log('RPC function not available or error:', rpcError.message)
     }
 
     // Fallback: Get all non-expired spawns and filter client-side
-    // This is less efficient but works if RPC function isn't available
+    // Use PostGIS functions to extract coordinates as numbers
+    console.log('Using fallback method to fetch spawns (RPC function may not be available)')
     const { data: allSpawns, error: queryError } = await supabase
-      .from('spawns')
-      .select(`
-        *,
-        creature_types (*)
-      `)
+      .rpc('get_spawns_with_coords')
       .gte('expires_at', new Date().toISOString())
+      .limit(100)
+    
+    // If RPC doesn't exist, fall back to regular query and parse WKB
+    if (queryError && queryError.message?.includes('function') || !allSpawns) {
+      console.log('RPC function not available, using direct query with WKB parsing')
+      const { data: rawSpawns, error: directError } = await supabase
+        .from('spawns')
+        .select(`
+          *,
+          creature_types (*)
+        `)
+        .gte('expires_at', new Date().toISOString())
+        .limit(100)
+      
+      if (directError) {
+        console.warn('Error fetching spawns:', directError)
+        return []
+      }
+      
+      // Parse WKB hex strings to coordinates
+      if (rawSpawns && rawSpawns.length > 0) {
+        console.log('Parsing WKB hex locations from fallback query...')
+        const parsedSpawns = rawSpawns.map(spawn => {
+          if (typeof spawn.location === 'string' && spawn.location.startsWith('0101')) {
+            // This is WKB hex format - parse it
+            const coords = parseWKBHex(spawn.location)
+            if (coords) {
+              console.log(`Parsed WKB: ${spawn.location.substring(0, 20)}... -> [${coords.lon}, ${coords.lat}]`)
+              return {
+                ...spawn,
+                longitude: coords.lon,
+                latitude: coords.lat,
+                location: `POINT(${coords.lon} ${coords.lat})`, // Convert to WKT for compatibility
+              }
+            } else {
+              console.warn('Failed to parse WKB hex for spawn:', spawn.id, spawn.location.substring(0, 20))
+            }
+          } else {
+            // Try parsing as WKT or other format
+            const coords = parseLocationString(spawn.location)
+            if (coords) {
+              return {
+                ...spawn,
+                longitude: coords.lon,
+                latitude: coords.lat,
+              }
+            }
+          }
+          return null
+        }).filter(spawn => spawn !== null && spawn.longitude !== undefined && spawn.latitude !== undefined)
+        
+        console.log(`Parsed ${parsedSpawns.length} spawns from ${rawSpawns.length} raw spawns`)
+        
+        // Filter by distance
+        const nearbySpawns = parsedSpawns.filter(spawn => {
+          const distance = calculateDistance(latitude, longitude, spawn.latitude, spawn.longitude)
+          return distance <= radiusMeters
+        })
+        
+        console.log(`Filtered to ${nearbySpawns.length} nearby spawns (within ${radiusMeters}m)`)
+        return nearbySpawns
+      }
+      return []
+    }
 
     if (queryError) {
       console.warn('Error fetching spawns:', queryError)
@@ -340,12 +467,76 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
 }
 
 /**
+ * Parse WKB hex string to coordinates (PostGIS geography format)
+ * @param {string} hex - WKB hex string (e.g., "0101000020E61000005F28141DE50B02C04CC0A2F9F0B94A40")
+ * @returns {{lon: number, lat: number}|null}
+ */
+function parseWKBHex(hex) {
+  try {
+    if (!hex || typeof hex !== 'string' || hex.length < 42) {
+      return null
+    }
+    
+    // WKB Extended format with SRID:
+    // Byte 0: Endianness (01 = little endian)
+    // Bytes 1-4: Geometry type (01000000 = Point with SRID)
+    // Bytes 5-8: SRID (20E61000 = 4326 in little endian: 00 10 E6 20)
+    // Bytes 9-16: X coordinate (longitude) as double
+    // Bytes 17-24: Y coordinate (latitude) as double
+    
+    // Extract coordinate hex strings (16 chars each = 8 bytes)
+    // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
+    const xHex = hex.substring(18, 34) // Longitude (8 bytes)
+    const yHex = hex.substring(34, 50) // Latitude (8 bytes)
+    
+    // Convert hex to bytes (little endian - read in reverse pairs)
+    const lon = parseDoubleLittleEndian(xHex)
+    const lat = parseDoubleLittleEndian(yHex)
+    
+    if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
+      console.warn('Invalid coordinates from WKB:', { lon, lat, xHex, yHex })
+      return null
+    }
+    
+    return { lon, lat }
+  } catch (error) {
+    console.error('Error parsing WKB hex:', error, hex)
+    return null
+  }
+}
+
+/**
+ * Parse 16-character hex string as little-endian double (float64)
+ * @param {string} hex - 16 hex characters (8 bytes)
+ * @returns {number}
+ */
+function parseDoubleLittleEndian(hex) {
+  // Create a buffer and view
+  const buffer = new ArrayBuffer(8)
+  const view = new DataView(buffer)
+  
+  // Convert hex pairs to bytes (in little endian order)
+  for (let i = 0; i < 8; i++) {
+    const byteValue = parseInt(hex.substr(i * 2, 2), 16)
+    view.setUint8(i, byteValue)
+  }
+  
+  // Read as Float64 (little endian = true)
+  return view.getFloat64(0, true)
+}
+
+/**
  * Parse PostGIS location string to coordinates
- * @param {string|object} location - PostGIS point string or object
+ * @param {string|object} location - PostGIS point string, WKB hex, or object with coordinates
  * @returns {{lon: number, lat: number}|null}
  */
 function parseLocationString(location) {
-  // Handle string format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
+  // Handle WKB hex format (starts with "0101")
+  if (typeof location === 'string' && location.startsWith('0101')) {
+    return parseWKBHex(location)
+  }
+  
+  // Handle WKT string format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
   if (typeof location === 'string') {
     const match = location.match(/POINT\(([^)]+)\)/)
     if (match) {
@@ -361,6 +552,13 @@ function parseLocationString(location) {
   
   // Handle object format from Supabase (if location is returned as object)
   if (location && typeof location === 'object') {
+    // Check for longitude/latitude properties (from PostGIS ST_X/ST_Y)
+    if (location.longitude !== undefined && location.latitude !== undefined) {
+      return {
+        lon: parseFloat(location.longitude),
+        lat: parseFloat(location.latitude),
+      }
+    }
     // Check for coordinates array [lon, lat]
     if (Array.isArray(location.coordinates) && location.coordinates.length >= 2) {
       return {
