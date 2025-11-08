@@ -26,7 +26,7 @@ export default function Map() {
     location?.latitude,
     location?.longitude
   )
-  const { challenges, loading: challengesLoading } = useChallenges(
+  const { challenges, loading: challengesLoading, refetch: refetchChallenges } = useChallenges(
     location?.latitude,
     location?.longitude
   )
@@ -38,11 +38,11 @@ export default function Map() {
   const [selectedChallenge, setSelectedChallenge] = useState(null)
   const [inPark, setInPark] = useState(false)
   const [parkName, setParkName] = useState(null)
+  const [caughtCreatureIds, setCaughtCreatureIds] = useState(new Set())
   const markersRef = useRef([])
   const challengeMarkersRef = useRef([])
   const lastSpawnGenRef = useRef(0)
   const [spawnGenerating, setSpawnGenerating] = useState(false)
-  const [spawnDebugInfo, setSpawnDebugInfo] = useState(null)
   const [showChallengePanel, setShowChallengePanel] = useState(false)
   const [generatingChallenges, setGeneratingChallenges] = useState(false)
   const lastChallengeGenRef = useRef(0)
@@ -93,13 +93,13 @@ export default function Map() {
     const arrowSVG = `
       <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="transform-origin: 16px 16px;">
         <!-- Outer circle background with glow -->
-        <circle cx="16" cy="16" r="15" fill="#4ECDC4" stroke="#FFFFFF" stroke-width="2.5" opacity="0.95"/>
+        <circle cx="16" cy="16" r="15" fill="#aabda0" stroke="#FFFFFF" stroke-width="2.5" opacity="0.95"/>
         <!-- Arrow shaft -->
         <rect x="14" y="8" width="4" height="12" fill="#FFFFFF" rx="1"/>
         <!-- Arrow head pointing up -->
         <path d="M 16 4 L 10 12 L 16 10 L 22 12 Z" 
               fill="#FFFFFF" 
-              stroke="#1A1A2E" 
+              stroke="#5b695d" 
               stroke-width="0.3"
               stroke-linejoin="round"/>
       </svg>
@@ -166,8 +166,7 @@ export default function Map() {
     // Check if in park
     checkParkStatus(location.latitude, location.longitude)
     
-    // Generate spawns immediately on location change (for testing)
-    // Then generate every 2 minutes (reduced from 5 for testing)
+      // Generate spawns immediately on location change, then every 2 minutes
     const now = Date.now()
     const timeSinceLastSpawn = now - lastSpawnGenRef.current
     
@@ -206,40 +205,13 @@ export default function Map() {
 
     setSpawnGenerating(true)
     try {
-      console.log('Checking park status and country code...')
       const parkStatus = await checkIfInParkCached(lat, lon)
       const countryCode = await getCountryCodeCached(lat, lon)
-      
-      console.log('Park status:', parkStatus, 'Country:', countryCode)
-      
-      const spawnCount = await generateSpawns(lat, lon, 500, parkStatus.inPark, countryCode)
-      
-      setSpawnDebugInfo({
-        generated: spawnCount,
-        inPark: parkStatus.inPark,
-        countryCode,
-        timestamp: new Date().toLocaleTimeString(),
-      })
-      
-      
-      // Force refresh creatures list after generating spawns
-      // The useCreatures hook will pick this up on its next refresh (10 seconds)
-      // But we can also trigger it manually if needed
+      await generateSpawns(lat, lon, 500, parkStatus.inPark, countryCode)
     } catch (error) {
       console.error('Error generating spawns:', error)
-      setSpawnDebugInfo({
-        error: error.message,
-        timestamp: new Date().toLocaleTimeString(),
-      })
     } finally {
       setSpawnGenerating(false)
-    }
-  }
-
-  // Manual spawn generation (for testing)
-  const handleManualSpawn = () => {
-    if (location) {
-      generateSpawnsForLocation(location.latitude, location.longitude)
     }
   }
 
@@ -258,6 +230,45 @@ export default function Map() {
       return
     }
 
+    // Filter out caught creatures and spawns too close to player
+    const MIN_SPAWN_DISTANCE = 25 // Minimum distance in meters (prevent spawns on player icon)
+    const availableCreatures = creatures.filter(spawn => {
+      // Skip if already caught
+      if (caughtCreatureIds.has(spawn.id)) {
+        return false
+      }
+      
+      // Skip if too close to player (prevent spawns on/too close to player icon)
+      if (location) {
+        // Get spawn coordinates
+        let spawnLat, spawnLon
+        if (spawn.latitude !== undefined && spawn.longitude !== undefined) {
+          spawnLat = parseFloat(spawn.latitude)
+          spawnLon = parseFloat(spawn.longitude)
+        } else if (spawn.location) {
+          // Parse from location if coordinates not directly available
+          const coords = parseLocation(spawn.location)
+          if (coords && Array.isArray(coords) && coords.length >= 2) {
+            spawnLon = coords[0]
+            spawnLat = coords[1]
+          }
+        }
+        
+        if (spawnLat !== undefined && spawnLon !== undefined && !isNaN(spawnLat) && !isNaN(spawnLon)) {
+          const distance = calculateDistance(
+            location.latitude,
+            location.longitude,
+            spawnLat,
+            spawnLon
+          )
+          if (distance < MIN_SPAWN_DISTANCE) {
+            return false
+          }
+        }
+      }
+      
+      return true
+    })
 
     // Clear existing markers
     markersRef.current.forEach(marker => marker.remove())
@@ -267,7 +278,7 @@ export default function Map() {
     let markersCreated = 0
     let markersSkipped = 0
 
-    creatures.forEach((spawn, index) => {
+    availableCreatures.forEach((spawn, index) => {
       if (!spawn.creature_types) {
         console.warn(`Spawn ${index} missing creature_types:`, spawn)
         markersSkipped++
@@ -325,14 +336,17 @@ export default function Map() {
         marker.getElement().addEventListener('click', (e) => {
           e.stopPropagation() // Prevent map click events
           e.preventDefault() // Prevent default behavior
-          // Ensure coordinates are correctly passed - use the parsed values
-          setSelectedCreature({
-            ...spawn,
-            latitude: lat, // Parsed latitude
-            longitude: lon, // Parsed longitude
-            // Keep original location for reference
-            location: spawn.location,
-          })
+          // Don't open modal if already caught
+          if (!caughtCreatureIds.has(spawn.id)) {
+            // Ensure coordinates are correctly passed - use the parsed values
+            setSelectedCreature({
+              ...spawn,
+              latitude: lat, // Parsed latitude
+              longitude: lon, // Parsed longitude
+              // Keep original location for reference
+              location: spawn.location,
+            })
+          }
         })
 
         markersRef.current.push(marker)
@@ -349,7 +363,7 @@ export default function Map() {
       markersRef.current.forEach(marker => marker.remove())
       markersRef.current = []
     }
-  }, [creatures, mapLoaded])
+  }, [creatures, mapLoaded, caughtCreatureIds, location])
 
   // Parse WKB hex string to coordinates (same as in spawning.js)
   const parseWKBHex = (hex) => {
@@ -385,6 +399,22 @@ export default function Map() {
       console.error('Error parsing WKB hex:', error)
       return null
     }
+  }
+
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3 // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180
+    const φ2 = (lat2 * Math.PI) / 180
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c // Distance in meters
   }
 
   // Parse PostGIS geography point
@@ -528,11 +558,11 @@ export default function Map() {
   // Get rarity color
   const getRarityColor = (rarity) => {
     const colors = {
-      common: '#4ECDC4',
-      uncommon: '#FFE66D',
-      rare: '#A569BD',
-      epic: '#FF6B6B',
-      legendary: '#F39C12',
+      common: '#aabda0',
+      uncommon: '#beccc0',
+      rare: '#7e9278',
+      epic: '#6e7864',
+      legendary: '#8b7355',
     }
     return colors[rarity] || colors.common
   }
@@ -633,8 +663,6 @@ export default function Map() {
       return
     }
 
-    console.log(`Creating markers for ${challenges.length} challenges`)
-
     challenges.forEach((challenge) => {
       if (!challenge.latitude || !challenge.longitude) {
         console.warn('Challenge missing coordinates:', challenge.id)
@@ -668,9 +696,50 @@ export default function Map() {
     }
   }, [challenges, mapLoaded])
 
+  // Update selected challenge progress when challenges refresh (separate effect to avoid loops)
+  useEffect(() => {
+    if (!selectedChallenge || !challenges || challenges.length === 0) return
+    
+    const updatedChallenge = challenges.find(c => c.id === selectedChallenge.id)
+    if (updatedChallenge && (
+      updatedChallenge.progress_value !== selectedChallenge.progress_value || 
+      updatedChallenge.completed !== selectedChallenge.completed
+    )) {
+      console.log(`📊 Updating selected challenge progress: ${updatedChallenge.progress_value}/${updatedChallenge.target_value} (was ${selectedChallenge.progress_value}/${selectedChallenge.target_value})`)
+      setSelectedChallenge(updatedChallenge)
+    }
+  }, [challenges]) // Only depend on challenges array
+
   const handleCloseModal = useCallback(() => {
     setSelectedCreature(null)
   }, [])
+
+  const handleCreatureCaught = useCallback((creatureId) => {
+    // Add to caught set to immediately remove from map
+    setCaughtCreatureIds(prev => new Set([...prev, creatureId]))
+    // Close the modal
+    setSelectedCreature(null)
+  }, [])
+
+  const handleChallengeUpdate = useCallback(() => {
+    // Refresh challenges immediately after a catch to update progress
+    console.log('🔄 Refreshing challenges after catch...')
+    if (refetchChallenges) {
+      // Add a small delay to ensure database has updated
+      setTimeout(async () => {
+        await refetchChallenges()
+        console.log('✅ Challenges refreshed')
+        
+        // Update selected challenge if it exists to show new progress
+        if (selectedChallenge) {
+          // Find the updated challenge in the refreshed list
+          setTimeout(() => {
+            // This will be handled by the challenges update effect
+          }, 100)
+        }
+      }, 500)
+    }
+  }, [refetchChallenges, selectedChallenge])
 
   if (!mapboxgl.accessToken) {
     return (
@@ -726,58 +795,6 @@ export default function Map() {
         </div>
       )}
 
-      {/* Debug info and manual spawn button (for testing) */}
-      {location && (
-        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10 max-w-xs" style={{ zIndex: 10 }}>
-          <div className="text-xs mb-2 space-y-1">
-            <div className="font-bold">Creatures nearby: {creatures?.length || 0}</div>
-            <div className="text-gray-400">
-              Markers created: {markersRef.current.length}
-            </div>
-            {spawnDebugInfo && (
-              <div className="mt-1 text-gray-400">
-                <div>Last spawn: {spawnDebugInfo.generated || 0} generated</div>
-                {spawnDebugInfo.inPark && (
-                  <div className="text-green-400">🌳 In park (boosted)</div>
-                )}
-                {spawnDebugInfo.countryCode && (
-                  <div>Country: {spawnDebugInfo.countryCode}</div>
-                )}
-                {spawnDebugInfo.error && (
-                  <div className="text-red-400">Error: {spawnDebugInfo.error}</div>
-                )}
-              </div>
-            )}
-            {creatures && creatures.length > 0 && (
-              <div className="mt-2 text-gray-300">
-                <div className="font-semibold mb-1">Creatures:</div>
-                {creatures.slice(0, 3).map((c, i) => (
-                  <div key={i} className="text-xs">
-                    {c.creature_types?.name || 'Unknown'} ({c.creature_types?.rarity || '?'})
-                  </div>
-                ))}
-                {creatures.length > 3 && (
-                  <div className="text-xs text-gray-500">+{creatures.length - 3} more</div>
-                )}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={handleManualSpawn}
-            disabled={spawnGenerating}
-            className="w-full bg-primary hover:bg-primary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50 mb-2"
-          >
-            {spawnGenerating ? 'Generating...' : 'Generate Spawns'}
-          </button>
-          <button
-            onClick={() => location && generateChallengesForLocation(location.latitude, location.longitude)}
-            disabled={generatingChallenges}
-            className="w-full bg-secondary hover:bg-secondary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50"
-          >
-            {generatingChallenges ? 'Generating Challenges...' : 'Generate Challenges'}
-          </button>
-        </div>
-      )}
 
       {/* Challenges Button - Left side of map */}
       <button
@@ -810,6 +827,8 @@ export default function Map() {
           creature={selectedCreature}
           userLocation={location}
           onClose={handleCloseModal}
+          onCatch={handleCreatureCaught}
+          onChallengeUpdate={handleChallengeUpdate}
         />
       )}
 
