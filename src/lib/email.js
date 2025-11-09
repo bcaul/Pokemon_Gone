@@ -55,6 +55,24 @@ export async function sendVoucherEmail(voucherId) {
       let errorDetails = null
       let errorCode = null
       
+      // Check if function is not deployed (CORS error or 404)
+      const isNotDeployed = errorMessage.includes('Failed to fetch') ||
+                           errorMessage.includes('CORS') ||
+                           errorMessage.includes('network') ||
+                           errorMessage.includes('ERR_FAILED') ||
+                           (responseError.status && responseError.status === 404) ||
+                           (responseError.statusCode && responseError.statusCode === 404)
+      
+      if (isNotDeployed) {
+        const deploymentError = new Error('FUNCTION_NOT_DEPLOYED')
+        deploymentError.details = {
+          message: 'The email function is not deployed. Please deploy the Edge Function first.',
+          action: 'Deploy the send-voucher-email function via Supabase Dashboard or CLI',
+          voucher_code: voucher.voucher_code
+        }
+        throw deploymentError
+      }
+      
       // Check responseError.context (Supabase FunctionsHttpError structure)
       if (responseError.context) {
         try {
@@ -123,7 +141,8 @@ export async function sendVoucherEmail(voucherId) {
     }
 
     // Update voucher to indicate email was sent (only if we got a successful response)
-    if (responseData && !responseData.error) {
+    // But only update if we actually got a messageId from Resend (proves email was sent)
+    if (responseData && !responseData.error && responseData.messageId) {
       const { error: updateError } = await supabase
         .from('vouchers')
         .update({ 
@@ -136,6 +155,11 @@ export async function sendVoucherEmail(voucherId) {
         console.error('Error updating voucher email status:', updateError)
         // Don't throw - email was sent, just couldn't update status
       }
+      
+      console.log('Email sent successfully with messageId:', responseData.messageId)
+    } else {
+      // Log if we got success but no messageId (this shouldn't happen)
+      console.warn('Email function returned success but no messageId:', responseData)
     }
 
     return { success: true, data: responseData }

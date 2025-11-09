@@ -92,26 +92,27 @@ export async function checkAndSpawnGymCreatures() {
     const { data, error } = await supabase.rpc('check_and_spawn_gym_creatures')
 
     if (error) {
-      // Only log detailed errors in development to reduce console noise
-      if (import.meta.env.DEV) {
-        console.error('Error checking and spawning gym creatures:', error)
-        console.error('Error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        })
+      // Check if it's a permission error (400) - this is expected if migration hasn't run
+      if (error.code === '42501' || error.message?.includes('permission denied') || error.code === 'P0001' || error.code === '42883') {
+        // Permission/function error - function needs migration to be run
+        // Don't log this as it's expected until migration is run
+        // The migration file 020_fix_gym_spawning_permissions.sql needs to be run in Supabase
+        return []
       }
-      // Silently fail in production - this is not critical functionality
+      
+      // Only log other errors in development to reduce console noise
+      if (import.meta.env.DEV) {
+        console.warn('Gym spawning error (non-critical):', error.message || error)
+        // Don't log full error details to reduce console spam
+      }
+      // Silently fail - this is not critical functionality
       return []
     }
 
     return data || []
   } catch (error) {
-    // Only log in development
-    if (import.meta.env.DEV) {
-      console.error('Failed to check and spawn gym creatures:', error)
-    }
+    // Silently fail - this is not critical functionality
+    // The error is likely due to missing migration (020_fix_gym_spawning_permissions.sql)
     return []
   }
 }

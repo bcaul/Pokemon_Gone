@@ -78,17 +78,54 @@ export default function Vouchers() {
 
   const handleResendEmail = async (voucher) => {
     try {
-      await sendVoucherEmail(voucher.id)
-      alert('✅ Email sent! Check your inbox for your voucher details.')
+      const result = await sendVoucherEmail(voucher.id)
+      console.log('Email send result:', result)
+      
+      // Check if we got a messageId (proof email was actually sent)
+      if (result?.data?.messageId) {
+        alert('✅ Email sent successfully!\n\n' +
+              'Message ID: ' + result.data.messageId + '\n' +
+              'Check your inbox (and spam folder) for your voucher details.\n\n' +
+              'If you don\'t see the email, check:\n' +
+              '1. Spam/junk folder\n' +
+              '2. Resend Dashboard: https://resend.com/emails\n' +
+              '3. Edge Function logs in Supabase Dashboard')
+      } else {
+        alert('⚠️ Email function returned success but no message ID.\n\n' +
+              'This might mean the email wasn\'t actually sent.\n' +
+              'Please check:\n' +
+              '1. Resend API key is set correctly\n' +
+              '2. Edge Function logs for errors\n' +
+              '3. Resend Dashboard for sent emails\n\n' +
+              'Your voucher code: ' + voucher.voucher_code + '\n' +
+              'Prize: ' + voucher.prize_description)
+      }
+      
       fetchVouchers() // Refresh to update email_sent status
     } catch (error) {
       console.error('Error sending email:', error)
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        stack: error.stack
+      })
       
+      // Check if function is not deployed
+      if (error.message === 'FUNCTION_NOT_DEPLOYED') {
+        alert('📧 Email function is not deployed yet.\n\n' +
+              'Please deploy the Edge Function:\n' +
+              '1. Go to Supabase Dashboard\n' +
+              '2. Deploy the send-voucher-email function\n' +
+              '3. Add RESEND_API_KEY secret\n\n' +
+              'Your voucher details are shown below - you can use this as proof of your prize!\n\n' +
+              'Voucher Code: ' + voucher.voucher_code + '\n' +
+              'Prize: ' + voucher.prize_description)
+      }
       // Check if email service is not configured
-      if (error.message === 'EMAIL_NOT_CONFIGURED' || error.message?.includes('not configured')) {
+      else if (error.message === 'EMAIL_NOT_CONFIGURED' || error.message?.includes('not configured')) {
         alert('📧 Email service is not set up yet. Your voucher details are shown below - you can use this as proof of your prize!\n\nVoucher Code: ' + voucher.voucher_code + '\nPrize: ' + voucher.prize_description)
       } else {
-        alert('⚠️ Could not send email. Your voucher details are shown below - you can use this as proof of your prize!\n\nVoucher Code: ' + voucher.voucher_code + '\nPrize: ' + voucher.prize_description + '\n\nError: ' + (error.message || 'Unknown error'))
+        alert('⚠️ Could not send email. Your voucher details are shown below - you can use this as proof of your prize!\n\nVoucher Code: ' + voucher.voucher_code + '\nPrize: ' + voucher.prize_description + '\n\nError: ' + (error.message || 'Unknown error') + '\n\nCheck the browser console (F12) for more details.')
       }
     }
   }

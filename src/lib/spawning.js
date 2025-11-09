@@ -79,9 +79,9 @@ export async function generateSpawns(latitude, longitude, radiusMeters = 500, in
 
     // Generate spawns in a smaller radius around user (200m instead of 500m)
     // This ensures spawns are close enough to catch (within 100m catch range)
-    // Spawn exactly 3-4 Pokemon (Pokemon Go style - smaller groups)
-    const MIN_SPAWNS = 3
-    const MAX_SPAWNS = 4
+    // Spawn 5-7 Pokemon (increased for better gameplay)
+    const MIN_SPAWNS = 5
+    const MAX_SPAWNS = 7
     const spawnCount = MIN_SPAWNS + Math.floor(Math.random() * (MAX_SPAWNS - MIN_SPAWNS + 1))
     const spawns = []
 

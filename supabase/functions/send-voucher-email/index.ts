@@ -227,11 +227,26 @@ serve(async (req) => {
     // Send email via Resend
     let emailData
     try {
+      console.log('Attempting to send email via Resend:', {
+        to: user_email,
+        from: 'WanderBeasts <onboarding@resend.dev>',
+        subject: `🎉 You've earned a reward from ${business_name}!`,
+        hasApiKey: !!RESEND_API_KEY,
+        apiKeyPrefix: RESEND_API_KEY ? RESEND_API_KEY.substring(0, 10) + '...' : 'NOT SET'
+      })
+      
       const { data, error } = await resend.emails.send({
         from: 'WanderBeasts <onboarding@resend.dev>', // Use Resend's test domain by default
         to: [user_email],
         subject: `🎉 You've earned a reward from ${business_name}!`,
         html: emailHtml,
+      })
+
+      console.log('Resend API response:', {
+        hasData: !!data,
+        hasError: !!error,
+        data: data ? JSON.stringify(data) : 'null',
+        error: error ? JSON.stringify(error) : 'null'
       })
 
       if (error) {
@@ -248,7 +263,34 @@ serve(async (req) => {
       }
 
       emailData = data
-      console.log('Email sent successfully via Resend:', emailData?.id)
+      console.log('Email sent successfully via Resend:', {
+        messageId: emailData?.id,
+        fullResponse: JSON.stringify(emailData),
+        to: user_email,
+        from: 'WanderBeasts <onboarding@resend.dev>',
+        subject: `🎉 You've earned a reward from ${business_name}!`,
+        resendDashboardUrl: `https://resend.com/emails/${emailData?.id}`,
+        note: 'Check Resend Dashboard for delivery status: https://resend.com/emails'
+      })
+      
+      // Verify we got a message ID (proof email was actually sent)
+      // Resend returns { id: '...' } on success
+      if (!emailData || !emailData.id) {
+        console.error('Resend returned success but no message ID. Full response:', JSON.stringify(emailData, null, 2))
+        return new Response(
+          JSON.stringify({ 
+            error: 'Email service returned success but no message ID',
+            message: 'Email may not have been sent. Please check Resend API key and domain verification.',
+            details: emailData,
+            debug: {
+              hasData: !!emailData,
+              dataKeys: emailData ? Object.keys(emailData) : [],
+              dataString: JSON.stringify(emailData)
+            }
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
     } catch (resendError) {
       console.error('Exception while calling Resend API:', resendError)
       return new Response(

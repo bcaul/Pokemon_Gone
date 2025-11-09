@@ -1421,27 +1421,10 @@ export default function Map() {
         </div>
       )}
 
-      {/* Challenges Button - Left side of map */}
+      {/* Gyms Button - Left side of map (top) */}
       {mapLoaded && (
         <button
-          className="absolute bottom-28 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
-          onClick={() => setShowChallengePanel(true)}
-          title="View Challenges"
-          aria-label="View nearby challenges"
-        >
-          <Target size={24} className="drop-shadow-lg" />
-          {challenges && challenges.length > 0 && (
-            <span className="bg-red-500 text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-lg">
-              {challenges.filter(c => !c.completed).length}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* Gyms Button - Left side of map */}
-      {mapLoaded && (
-        <button
-          className="absolute bottom-40 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
+          className="absolute bottom-64 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
           onClick={() => setShowGymPanel(true)}
           title="View Gyms"
           aria-label="View nearby gyms"
@@ -1455,7 +1438,24 @@ export default function Map() {
         </button>
       )}
 
-      {/* Center on Location Button */}
+      {/* Challenges Button - Left side of map (middle) */}
+      {mapLoaded && (
+        <button
+          className="absolute bottom-40 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
+          onClick={() => setShowChallengePanel(true)}
+          title="View Challenges"
+          aria-label="View nearby challenges"
+        >
+          <Target size={24} className="drop-shadow-lg" />
+          {challenges && challenges.length > 0 && (
+            <span className="bg-red-500 text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-lg">
+              {challenges.filter(c => !c.completed).length}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Center on Location Button - Left side of map (bottom) */}
       {mapLoaded && location && (
         <button
           className="absolute bottom-16 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 transition-all transform hover:scale-110"

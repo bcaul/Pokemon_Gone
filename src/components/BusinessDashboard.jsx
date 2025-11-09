@@ -168,8 +168,8 @@ export default function BusinessDashboard() {
       </div>
 
       {/* Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-emerald-950/50 to-emerald-900/50" style={{ WebkitOverflowScrolling: 'touch' }}>
-        <div className="max-w-7xl mx-auto px-6 py-8 min-h-full">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-emerald-950/50 to-emerald-900/50" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', minHeight: 0 }}>
+        <div className="max-w-7xl mx-auto px-6 py-8 pb-8">
           {activeTab === 'challenges' && (
             <BusinessChallenges key={refreshKey} businessId={business.id} />
           )}

@@ -262,23 +262,30 @@ export default function GymCard({ gym, userLatitude, userLongitude }) {
         </div>
       )}
 
-      {/* Player count and RSVP info */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-4 text-gray-400 text-sm">
-          <div className="flex items-center gap-1">
-            <Users size={16} />
-            <span>{rsvpCount} RSVPs</span>
+      {/* Player count and RSVP info - Enhanced visibility */}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* RSVP Count - More Prominent */}
+          <div className="flex items-center gap-2 bg-emerald-600/20 border-2 border-emerald-400/50 rounded-lg px-3 py-2">
+            <Users size={18} className="text-emerald-300" />
+            <div className="flex flex-col">
+              <span className="text-emerald-100 font-bold text-base">{rsvpCount}</span>
+              <span className="text-emerald-300/80 text-xs">RSVPs</span>
+            </div>
           </div>
           {playerCount > 0 && (
-            <div className="flex items-center gap-1 text-blue-400">
+            <div className="flex items-center gap-2 text-blue-400 bg-blue-500/20 border-2 border-blue-400/50 rounded-lg px-3 py-2">
               <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
-              <span>{playerCount} players nearby</span>
+              <div className="flex flex-col">
+                <span className="text-blue-300 font-bold text-base">{playerCount}</span>
+                <span className="text-blue-300/80 text-xs">players nearby</span>
+              </div>
             </div>
           )}
           {playerCount >= 5 && (
-            <div className="flex items-center gap-1 text-green-400 font-semibold">
-              <Zap size={14} />
-              <span>Creatures spawning!</span>
+            <div className="flex items-center gap-2 text-green-400 font-semibold bg-green-500/20 border-2 border-green-400/50 rounded-lg px-3 py-2">
+              <Zap size={16} />
+              <span className="text-green-300">Creatures spawning!</span>
             </div>
           )}
         </div>
