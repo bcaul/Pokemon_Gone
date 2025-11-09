@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase.js'
 import mapboxgl from 'mapbox-gl'
-import { MapPin, X } from 'lucide-react'
+import { MapPin, X, Gift } from 'lucide-react'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || ''
 
@@ -285,14 +285,24 @@ export default function CreateChallenge({ businessId, onChallengeCreated }) {
         p_radius_meters: formData.radius_meters,
       })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error creating challenge via RPC:', error)
+        throw error
+      }
+
+      if (!challengeId) {
+        console.error('No challenge ID returned from RPC function')
+        throw new Error('Failed to create challenge - no ID returned')
+      }
+
 
       // Update challenge with business details and prize
       const updateData = {
         business_id: businessId,
-        prize_description: formData.prize_description,
-        reward_points: formData.reward_points,
-        difficulty: formData.difficulty,
+        prize_description: formData.prize_description || '',
+        reward_points: formData.reward_points || 150,
+        difficulty: formData.difficulty || 'easy',
+        active: true, // Ensure challenge is active
       }
 
       if (formData.prize_expires_at) {
@@ -312,11 +322,29 @@ export default function CreateChallenge({ businessId, onChallengeCreated }) {
         .update(updateData)
         .eq('id', challengeId)
 
-      if (updateError) throw updateError
+      if (updateError) {
+        console.error('Error updating challenge:', updateError)
+        throw updateError
+      }
+
+      // Verify the challenge was updated correctly
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('challenges')
+        .select('id, business_id, active, prize_description')
+        .eq('id', challengeId)
+        .single()
+
+      if (verifyError) {
+        console.error('Error verifying challenge:', verifyError)
+      }
 
       alert('Challenge created successfully!')
+      
+      // Call callback after a delay to ensure database commit
       if (onChallengeCreated) {
-        onChallengeCreated()
+        setTimeout(() => {
+          onChallengeCreated()
+        }, 500)
       }
       
       // Reset form
@@ -342,7 +370,7 @@ export default function CreateChallenge({ businessId, onChallengeCreated }) {
   }
 
   return (
-    <div className="w-full max-w-4xl mx-auto">
+    <div className="w-full max-w-4xl mx-auto pb-8">
       <h2 className="text-2xl font-bold text-white mb-6">Create New Challenge</h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -484,21 +512,24 @@ export default function CreateChallenge({ businessId, onChallengeCreated }) {
           </p>
         </div>
 
-        {/* Prize Description */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Prize Description * (What the player gets)
-          </label>
+        {/* Prize Description - Enhanced */}
+        <div className="bg-gradient-to-r from-yellow-400/10 via-yellow-500/5 to-yellow-400/10 rounded-xl p-5 border-2 border-yellow-400/30">
+          <div className="flex items-center gap-2 mb-3">
+            <Gift className="text-yellow-300" size={20} />
+            <label className="block text-sm font-bold text-yellow-200">
+              Prize Description * (What the player gets)
+            </label>
+          </div>
           <textarea
             value={formData.prize_description}
             onChange={(e) => setFormData({ ...formData, prize_description: e.target.value })}
-            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
-            rows={2}
-            placeholder="e.g., Free side dish at our restaurant"
+            className="w-full px-4 py-3 bg-emerald-900/50 border-2 border-yellow-400/40 rounded-lg text-white placeholder-yellow-300/50 focus:border-yellow-400/60 focus:ring-2 focus:ring-yellow-400/30"
+            rows={3}
+            placeholder="e.g., Free large coffee and pastry of your choice! Valid for 30 days."
             required
           />
-          <p className="text-gray-400 text-sm mt-1">
-            This will be sent to players via email when they complete the challenge
+          <p className="text-yellow-200/70 text-xs mt-2">
+            💡 This will be shown prominently to players and sent via email when they complete the challenge.
           </p>
         </div>
 

@@ -1,106 +1,81 @@
-# Quick Email Setup - Using Your Existing Supabase Project
+# Quick Email Setup Guide
 
-## TL;DR - Use Your Existing Project!
+## The Problem
+You're getting a 500 error when trying to send voucher emails. This is because the Resend API key is not configured.
 
-**You don't need a new Supabase project.** Edge functions are part of your existing project. Just deploy the function to the same project your app is using.
+## Quick Fix (5 minutes)
 
-## Quick Steps
+### Step 1: Get a Resend API Key (Free)
+1. Go to https://resend.com
+2. Sign up (it's free - 3,000 emails/month)
+3. Go to **API Keys** in the dashboard
+4. Click **Create API Key**
+5. Name it "WanderBeasts" (or anything)
+6. Copy the API key (starts with `re_`)
 
-### 1. Install Supabase CLI (if needed)
+### Step 2: Set the API Key in Supabase
 
-**Windows - Using Scoop (Recommended):**
-```powershell
-# Install Scoop (if needed)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+**Option A: Using Supabase Dashboard (Easiest)**
+1. Go to your Supabase dashboard: https://supabase.com/dashboard
+2. Select your project
+3. Go to **Settings** > **Edge Functions** > **Secrets**
+4. Click **Add Secret**
+5. Name: `RESEND_API_KEY`
+6. Value: Paste your Resend API key
+7. Click **Save**
 
-# Install Supabase CLI
-scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-scoop install supabase
-```
-
-**Windows - Using Chocolatey:**
-```powershell
-choco install supabase
-```
-
-**Windows - Using npx (no installation):**
-Just use `npx supabase@latest` instead of `supabase` in all commands below.
-
-**Mac/Linux:**
+**Option B: Using Supabase CLI**
 ```bash
-brew install supabase/tap/supabase
-```
+# Install Supabase CLI if you haven't
+npm install -g supabase
 
-### 2. Login
-```bash
+# Login to Supabase
 supabase login
+
+# Link your project (get project ref from Supabase dashboard > Settings > General)
+supabase link --project-ref your-project-ref
+
+# Set the secret
+supabase secrets set RESEND_API_KEY=your_resend_api_key_here
 ```
 
-### 3. Link Your Existing Project
+### Step 3: Deploy the Edge Function
+
 ```bash
-# Get your project Reference ID from: Supabase Dashboard > Settings > General
-# It looks like: abcdefghijklmnop
+# Make sure you're in the project directory
+cd C:\Users\taram\WanderBeasts
 
-# If you installed via Scoop/Chocolatey:
-supabase link --project-ref YOUR_PROJECT_REF_ID
-
-# If using npx (Windows):
-npx supabase@latest link --project-ref YOUR_PROJECT_REF_ID
-```
-
-### 4. Get Resend API Key
-- Sign up at [resend.com](https://resend.com)
-- Create API key in dashboard
-- Copy the key
-
-### 5. Set Secret in Your Existing Project
-```bash
-# If you installed via Scoop/Chocolatey:
-supabase secrets set RESEND_API_KEY=re_your_actual_key_here
-
-# If using npx (Windows):
-npx supabase@latest secrets set RESEND_API_KEY=re_your_actual_key_here
-```
-
-### 6. Deploy Function to Your Existing Project
-```bash
-# If you installed via Scoop/Chocolatey:
+# Deploy the function
 supabase functions deploy send-voucher-email
-
-# If using npx (Windows):
-npx supabase@latest functions deploy send-voucher-email
 ```
 
-### 7. Done!
-Your app can now send emails. The function is part of your existing Supabase project.
+### Step 4: Test It
+1. Complete a business challenge in your app
+2. Check your email inbox
+3. You should receive an email with your voucher code and prize details!
 
-## Verify It's Working
+## That's It!
 
-1. Your app is already connected to your Supabase project (via `VITE_SUPABASE_URL`)
-2. The edge function is now deployed to that same project
-3. When you call `supabase.functions.invoke('send-voucher-email')` in your app, it will use the function in your existing project
-
-## Where is Everything?
-
-- **Your Database**: Already in your existing Supabase project ✅
-- **Your Migrations**: Already in your existing Supabase project ✅
-- **Your Edge Function**: Now deployed to your existing Supabase project ✅
-- **Your App**: Already connected to your existing Supabase project ✅
-
-Everything is in one place - your existing Supabase project!
+Once the API key is set and the function is deployed, emails will work automatically. The function uses Resend's test domain (`onboarding@resend.dev`) so you don't need to verify a domain for testing.
 
 ## Troubleshooting
 
-**Q: Do I need to change my .env file?**
-A: No! Your existing `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are still the same.
+**Still getting 500 errors?**
+1. Check Supabase logs: Dashboard > Edge Functions > Logs
+2. Make sure the secret is named exactly `RESEND_API_KEY`
+3. Make sure the function is deployed: `supabase functions list`
+4. Check that your Resend API key is valid in the Resend dashboard
 
-**Q: Will this affect my existing data?**
-A: No! Edge functions don't touch your database. They're just serverless functions.
+**Emails going to spam?**
+- For production, verify your domain in Resend
+- Update the `from` email in `supabase/functions/send-voucher-email/index.ts` to use your verified domain
 
-**Q: Can I see the function in my Supabase dashboard?**
-A: Yes! Go to your Supabase dashboard > Edge Functions to see it.
+## Fallback: Voucher Details in App
 
-**Q: What if I have multiple Supabase projects?**
-A: Make sure you link to the correct one (the one your app is using). Check your `.env` file for `VITE_SUPABASE_URL` to confirm which project you're using.
+Even if email fails, your voucher details are always visible in the **Vouchers** section of the app. You can:
+- See your voucher code
+- See your prize description
+- See where to redeem it
+- Use the app as proof of your prize
 
+The email is just a convenience - all voucher information is stored in the database and shown in the app!

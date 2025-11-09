@@ -100,40 +100,89 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
           return null
         }).filter(challenge => challenge !== null && challenge.latitude && challenge.longitude)
         
-        // RPC function doesn't include business data, so we need to fetch it
-        // Get all challenge IDs that might have businesses
-        const challengeIds = processedChallenges.map(c => c.id)
+        // RPC function now includes business_id, but we still need to fetch business details
+        // Get all challenge IDs that have businesses
+        const businessChallengeIds = processedChallenges
+          .filter(c => c.business_id)
+          .map(c => c.id)
         
-        // Fetch full challenge data with business information
-        const { data: enrichedChallenges, error: enrichError } = await supabase
+        // Fetch business information for business challenges
+        let businessDataMap = new Map()
+        if (businessChallengeIds.length > 0) {
+          const { data: enrichedChallenges, error: enrichError } = await supabase
+            .from('challenges')
+            .select(`
+              id,
+              business_id,
+              prize_description,
+              prize_expires_at,
+              businesses:business_id (
+                id,
+                business_name,
+                business_type,
+                address
+              ),
+              creature_types:target_creature_type_id (name, rarity)
+            `)
+            .in('id', businessChallengeIds)
+
+          if (!enrichError && enrichedChallenges) {
+            // Create a map for quick lookup
+            enrichedChallenges.forEach(challenge => {
+              businessDataMap.set(challenge.id, challenge)
+            })
+          }
+        }
+        
+        // Also fetch creature types for all challenges
+        const allChallengeIds = processedChallenges.map(c => c.id)
+        const { data: allChallengesWithTypes } = await supabase
           .from('challenges')
           .select(`
             id,
-            business_id,
-            prize_description,
-            businesses:business_id (business_name, business_type),
             creature_types:target_creature_type_id (name, rarity)
           `)
-          .in('id', challengeIds)
-
-        if (!enrichError && enrichedChallenges) {
-          // Merge business data into RPC results
-          const challengesWithBusiness = processedChallenges.map(challenge => {
-            const enriched = enrichedChallenges.find(e => e.id === challenge.id)
-            return {
-              ...challenge,
-              business_id: enriched?.business_id || null,
-              prize_description: enriched?.prize_description || null,
-              businesses: enriched?.businesses || null,
-              creature_types: enriched?.creature_types || null,
+          .in('id', allChallengeIds)
+        
+        const creatureTypesMap = new Map()
+        if (allChallengesWithTypes) {
+          allChallengesWithTypes.forEach(challenge => {
+            if (challenge.creature_types) {
+              creatureTypesMap.set(challenge.id, challenge.creature_types)
             }
           })
-          
-          setChallenges(challengesWithBusiness)
-          setLoading(false)
-          return
         }
-        // If enrichment fails, fall through to fallback query
+        
+        // Merge business data into RPC results
+        const challengesWithBusiness = processedChallenges.map(challenge => {
+          const businessData = businessDataMap.get(challenge.id)
+          // Identify business challenges - MUST have business_id (not null)
+          const isBusinessChallenge = !!(challenge.business_id || businessData?.business_id)
+          
+          return {
+            ...challenge,
+            business_id: challenge.business_id || businessData?.business_id || null,
+            prize_description: businessData?.prize_description || null,
+            prize_expires_at: businessData?.prize_expires_at || null,
+            businesses: businessData?.businesses || null,
+            creature_types: creatureTypesMap.get(challenge.id) || null,
+            // Mark as business challenge for easy identification
+            isBusinessChallenge: isBusinessChallenge,
+          }
+        })
+        
+        // Sort business challenges first (already sorted by RPC, but ensure it)
+        const sortedChallenges = challengesWithBusiness.sort((a, b) => {
+          const aIsBusiness = !!a.business_id
+          const bIsBusiness = !!b.business_id
+          if (aIsBusiness && !bIsBusiness) return -1
+          if (!aIsBusiness && bIsBusiness) return 1
+          return (a.distance_meters || 0) - (b.distance_meters || 0)
+        })
+        
+        setChallenges(sortedChallenges)
+        setLoading(false)
+        return
       }
 
       // Fallback: Get all active challenges and filter client-side
@@ -142,7 +191,12 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
         .select(`
           *,
           creature_types:target_creature_type_id (name, rarity),
-          businesses (business_name, business_type)
+          businesses:business_id (
+            id,
+            business_name,
+            business_type,
+            address
+          )
         `)
         .eq('active', true)
         .is('expires_at', null)
@@ -195,8 +249,20 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
 
           const userChallenge = userChallenges.find(uc => uc.challenge_id === challenge.id)
           
-          // Ensure business data is properly set
-          const isBusinessChallenge = challenge.business_id && challenge.businesses
+          // Identify business challenges - MUST have business_id (not null)
+          // This is the DEFINITIVE way to identify business challenges
+          const isBusinessChallenge = !!challenge.business_id
+          
+          // Debug logging for business challenge identification
+          if (isBusinessChallenge) {
+            console.log('🏢 BUSINESS CHALLENGE IDENTIFIED:', {
+              id: challenge.id,
+              name: challenge.name,
+              business_id: challenge.business_id,
+              business_name: challenge.businesses?.business_name || 'Unknown',
+              prize: challenge.prize_description || 'No prize description'
+            })
+          }
           
           return {
             ...challenge,
@@ -210,22 +276,26 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
             business_id: challenge.business_id || null,
             businesses: challenge.businesses || null,
             prize_description: challenge.prize_description || null,
+            prize_expires_at: challenge.prize_expires_at || null,
             // Ensure creature_types is set
             creature_types: challenge.creature_types || null,
+            // Mark as business challenge
+            isBusinessChallenge: isBusinessChallenge,
           }
         })
         .filter(c => c !== null)
         .sort((a, b) => {
-          // Sort business challenges first, then by distance
-          const aIsBusiness = a.business_id && a.businesses
-          const bIsBusiness = b.business_id && b.businesses
+          // Sort business challenges FIRST (identified by business_id)
+          const aIsBusiness = !!a.business_id
+          const bIsBusiness = !!b.business_id
           
           if (aIsBusiness && !bIsBusiness) return -1
           if (!aIsBusiness && bIsBusiness) return 1
           
-          return a.distance_meters - b.distance_meters
+          // Then sort by distance
+          return (a.distance_meters || 0) - (b.distance_meters || 0)
         })
-
+      
       setChallenges(nearbyChallenges)
     } catch (err) {
       console.error('Error in fetchChallenges:', err)
@@ -244,8 +314,9 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
 
     fetchChallenges()
     
-    // Refresh challenges every 30 seconds
-    const interval = setInterval(fetchChallenges, 30000)
+    // Refresh challenges every 2 minutes (realtime subscriptions handle immediate updates)
+    // Reduced from 30s to save on Supabase API calls
+    const interval = setInterval(fetchChallenges, 120000)
     return () => clearInterval(interval)
   }, [latitude, longitude, radiusMeters, fetchChallenges])
 

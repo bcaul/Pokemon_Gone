@@ -136,8 +136,9 @@ export function useGyms(latitude, longitude, radiusMeters = 5000) {
       })
       .subscribe()
 
-    // Refresh every 10 seconds to get updated player counts and RSVPs
-    const intervalId = setInterval(fetchGyms, 10000)
+    // Refresh every 60 seconds to get updated player counts and RSVPs
+    // Reduced from 10s to save on Supabase API calls (realtime subscriptions handle immediate updates)
+    const intervalId = setInterval(fetchGyms, 60000)
 
     return () => {
       subscription.unsubscribe()

@@ -11,7 +11,7 @@ import { generateSpawns } from '../lib/spawning.js'
 import { generateChallengesNearParks, generateChallengesAtLocation } from '../lib/generateChallenges.js'
 import { getCountryCodeCached } from '../lib/geocoding.js'
 import { getCreatureSprite, getCreatureEmoji } from '../lib/creatureSprites.js'
-import { Target, MapPin } from 'lucide-react'
+import { Target, MapPin, Navigation2 } from 'lucide-react'
 import CatchModal from './CatchModal.jsx'
 import AIAssistant from './AIAssistant.jsx'
 import ChallengePanel from './ChallengePanel.jsx'
@@ -85,7 +85,19 @@ export default function Map() {
         container: mapContainer.current,
         style: mapboxStyle,
         center: [0, 0],
-        zoom: 15,
+        zoom: 18, // Start more zoomed in
+        pitch: 50, // Tilt map to see 3D buildings (0-60 degrees)
+        bearing: 0, // Rotation (0 = north up)
+        minZoom: 10, // Allow zooming out more
+        maxZoom: 22, // Allow zooming in closer
+        dragPan: false, // Disable panning/dragging
+        dragRotate: true, // Allow rotation by right-click + drag (desktop)
+        scrollZoom: true, // Enable scroll wheel zoom
+        boxZoom: false, // Disable box zoom
+        keyboard: false, // Disable keyboard navigation
+        doubleClickZoom: true, // Enable double-click zoom
+        touchZoomRotate: true, // Enable touch zoom and rotate
+        touchPitch: true, // Enable touch pitch adjustment
       })
 
       map.current.on('load', () => {
@@ -95,6 +107,46 @@ export default function Map() {
         }
         setMapLoaded(true)
         setMapError(null)
+        
+        // Add GeolocateControl for better location handling
+        const geolocate = new mapboxgl.GeolocateControl({
+          positionOptions: {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          },
+          trackUserLocation: true,
+          showUserHeading: true,
+          showAccuracyCircle: false,
+        })
+        
+        map.current.addControl(geolocate, 'top-right')
+        
+        // Add navigation control for rotation and zoom buttons
+        const nav = new mapboxgl.NavigationControl({
+          showCompass: true,
+          showZoom: true,
+          visualizePitch: true,
+        })
+        map.current.addControl(nav, 'top-right')
+        
+        // Listen for geolocate events
+        geolocate.on('geolocate', (e) => {
+          if (e.coords) {
+            console.log('📍 GeolocateControl location:', {
+              lat: e.coords.latitude,
+              lng: e.coords.longitude,
+              accuracy: e.coords.accuracy,
+            })
+          }
+        })
+        
+        geolocate.on('error', (e) => {
+          // Only log if it's not a permission denied error (common and expected)
+          if (e.code !== 1) {
+            console.warn('GeolocateControl error:', e.code, e.message)
+          }
+        })
       })
 
       map.current.on('error', (e) => {
@@ -171,8 +223,220 @@ export default function Map() {
     return el
   }, [])
 
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !location) return
+
+    // Validate location data
+    if (!location.latitude || !location.longitude || 
+        isNaN(location.latitude) || isNaN(location.longitude) ||
+        Math.abs(location.latitude) > 90 || Math.abs(location.longitude) > 180) {
+      console.warn('Invalid location data:', location)
+      return
+    }
+
+    const lng = location.longitude
+    const lat = location.latitude
+
+    // Create or update user marker FIRST - always show where user actually is
+    if (!map.current._userMarker) {
+      const markerElement = createUserLocationMarker(location.heading || 0)
+      map.current._userMarker = new mapboxgl.Marker({
+        element: markerElement,
+        anchor: 'center',
+      })
+        .setLngLat([lng, lat])
+        .addTo(map.current)
+    } else {
+      // Update marker position immediately
+      map.current._userMarker.setLngLat([lng, lat])
+      
+      // Update heading if available with smooth rotation
+      const headingDegrees = location.heading !== null && location.heading !== undefined && !isNaN(location.heading)
+        ? location.heading
+        : 0
+      const markerElement = map.current._userMarker.getElement()
+      const svgElement = markerElement?.querySelector('svg')
+      if (svgElement) {
+        svgElement.style.transition = 'transform 0.3s ease-out'
+        svgElement.style.transform = `rotate(${headingDegrees}deg)`
+      }
+    }
+
+    // Calculate actual distance in meters using Haversine formula
+    const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+      const R = 6371000 // Earth's radius in meters
+      const φ1 = (lat1 * Math.PI) / 180
+      const φ2 = (lat2 * Math.PI) / 180
+      const Δφ = ((lat2 - lat1) * Math.PI) / 180
+      const Δλ = ((lon2 - lon1) * Math.PI) / 180
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      return R * c
+    }
+
+    // Check if we need to center the map
+    const currentCenter = map.current.getCenter()
+    const centerLat = currentCenter.lat
+    const centerLng = currentCenter.lng
+    
+    // Calculate distance in meters
+    const distanceMeters = calculateDistanceMeters(centerLat, centerLng, lat, lng)
+    
+    // Determine if this is the first location or if we've moved significantly
+    const isFirstLocation = !map.current._hasCentered
+    const hasMovedSignificantly = distanceMeters > 100 // 100 meters threshold
+    
+    // Always center on first location, or if we've moved more than 100m
+    if (isFirstLocation || hasMovedSignificantly) {
+      if (isFirstLocation) {
+        // First location - jump immediately with 3D tilt and rotation
+        // Use jumpTo for instant centering on first load (no animation delay)
+        map.current.jumpTo({
+          center: [lng, lat],
+          zoom: 18, // Start more zoomed in
+          pitch: 50, // Tilt to see 3D buildings
+          bearing: 0, // North up
+        })
+        
+        // Store user location for bounds checking
+        map.current._lastUserLocation = { lat, lng }
+        
+        console.log('📍 Centering map on user location:', { 
+          lat, 
+          lng, 
+          accuracy: location.accuracy,
+          distanceFromOrigin: calculateDistanceMeters(0, 0, lat, lng)
+        })
+        
+        // Then after a brief moment, do a smooth flyTo to confirm with pitch
+        setTimeout(() => {
+          if (map.current && map.current._hasCentered) {
+            map.current.flyTo({
+              center: [lng, lat],
+              zoom: 18, // More zoomed in
+              pitch: 50,
+              bearing: 0,
+              duration: 1000,
+            })
+          }
+        }, 100)
+      } else {
+        // Subsequent updates - smooth following (keep current pitch and zoom)
+        map.current.easeTo({
+          center: [lng, lat],
+          zoom: map.current.getZoom(), // Keep current zoom
+          pitch: map.current.getPitch(), // Keep current pitch
+          bearing: map.current.getBearing(), // Keep current bearing
+          duration: 1000,
+          easing: (t) => t * (2 - t), // Ease-out
+        })
+      }
+      map.current._hasCentered = true
+      map.current._lastCenterLocation = { lat, lng, timestamp: Date.now() }
+      map.current._lastUserLocation = { lat, lng } // Update stored user location
+    }
+
+    // Check park status (throttled - reduced frequency to save API calls)
+    const now = Date.now()
+    if (!map.current._lastParkCheck || now - map.current._lastParkCheck > 30000) {
+      checkParkStatus(lat, lng)
+      map.current._lastParkCheck = now
+    }
+    
+    // Generate spawns (throttled - reduced frequency to save database writes)
+    const timeSinceLastSpawn = now - lastSpawnGenRef.current
+    if (timeSinceLastSpawn > 120 * 1000 || lastSpawnGenRef.current === 0) {
+      generateSpawnsForLocation(lat, lng)
+      lastSpawnGenRef.current = now
+    }
+  }, [location, mapLoaded, createUserLocationMarker])
+
+  // Also generate spawns periodically (every 5 minutes to reduce database writes)
+  useEffect(() => {
+    if (!location) return
+
+    const interval = setInterval(() => {
+      generateSpawnsForLocation(location.latitude, location.longitude)
+      lastSpawnGenRef.current = Date.now()
+    }, 5 * 60 * 1000) // 5 minutes (increased from 2 to save costs)
+
+    return () => clearInterval(interval)
+  }, [location])
+
+  const checkParkStatus = async (lat, lon) => {
+    const result = await checkIfInParkCached(lat, lon)
+    setInPark(result.inPark)
+    setParkName(result.parkName || null)
+  }
+
+  // Generate spawns for a location (async function)
+  const generateSpawnsForLocation = async (lat, lon) => {
+    if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+      console.warn('Cannot generate spawns: invalid location', { lat, lon })
+      return
+    }
+
+    setSpawnGenerating(true)
+    try {
+      const parkStatus = await checkIfInParkCached(lat, lon)
+      const countryCode = await getCountryCodeCached(lat, lon)
+      const spawnCount = await generateSpawns(lat, lon, 500, parkStatus.inPark, countryCode)
+      
+      // Debug info (optional - can be removed if not needed)
+      if (import.meta.env.DEV) {
+        console.log('Spawns generated:', {
+          count: spawnCount,
+          inPark: parkStatus.inPark,
+          countryCode,
+          location: { lat, lon }
+        })
+      }
+    } catch (error) {
+      console.error('Error generating spawns:', error)
+    } finally {
+      setSpawnGenerating(false)
+    }
+  }
+
+  // Parse WKB hex string to coordinates (same as in spawning.js)
+  const parseWKBHex = useCallback((hex) => {
+    try {
+      if (!hex || typeof hex !== 'string' || hex.length < 42) {
+        return null
+      }
+      
+      // WKB Extended format with SRID
+      // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
+      const xHex = hex.substring(18, 34) // Longitude (8 bytes)
+      const yHex = hex.substring(34, 50) // Latitude (8 bytes)
+      
+      // Convert hex to Float64 (little endian)
+      const parseDouble = (hexStr) => {
+        const buffer = new ArrayBuffer(8)
+        const view = new DataView(buffer)
+        for (let i = 0; i < 8; i++) {
+          view.setUint8(i, parseInt(hexStr.substr(i * 2, 2), 16))
+        }
+        return view.getFloat64(0, true)
+      }
+      
+      const lon = parseDouble(xHex)
+      const lat = parseDouble(yHex)
+      
+      if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
+        return null
+      }
+      
+      return [lon, lat]
+    } catch (error) {
+      console.error('Error parsing WKB hex:', error)
+      return null
+    }
+  }, [])
+
   // Calculate distance between two points using Haversine formula
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const calculateDistance = useCallback((lat1, lon1, lat2, lon2) => {
     const R = 6371e3 // Earth's radius in meters
     const φ1 = (lat1 * Math.PI) / 180
     const φ2 = (lat2 * Math.PI) / 180
@@ -185,46 +449,10 @@ export default function Map() {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
     return R * c // Distance in meters
-  }
+  }, [])
 
   // Parse PostGIS geography point
   const parseLocation = useCallback((location) => {
-    // Parse WKB hex string to coordinates (same as in spawning.js)
-    const parseWKBHex = (hex) => {
-      try {
-        if (!hex || typeof hex !== 'string' || hex.length < 42) {
-          return null
-        }
-        
-        // WKB Extended format with SRID
-        // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
-        const xHex = hex.substring(18, 34) // Longitude (8 bytes)
-        const yHex = hex.substring(34, 50) // Latitude (8 bytes)
-        
-        // Convert hex to Float64 (little endian)
-        const parseDouble = (hexStr) => {
-          const buffer = new ArrayBuffer(8)
-          const view = new DataView(buffer)
-          for (let i = 0; i < 8; i++) {
-            view.setUint8(i, parseInt(hexStr.substr(i * 2, 2), 16))
-          }
-          return view.getFloat64(0, true)
-        }
-        
-        const lon = parseDouble(xHex)
-        const lat = parseDouble(yHex)
-        
-        if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
-          return null
-        }
-        
-        return [lon, lat]
-      } catch (error) {
-        console.error('Error parsing WKB hex:', error)
-        return null
-      }
-    }
-
     // Handle WKB hex format (starts with "0101")
     if (typeof location === 'string' && location.startsWith('0101')) {
       const coords = parseWKBHex(location)
@@ -277,105 +505,7 @@ export default function Map() {
     }
     
     return [null, null]
-  }, [])
-
-  useEffect(() => {
-    if (!map.current || !mapLoaded || !location) return
-
-    if (!map.current._userMarker) {
-      const markerElement = createUserLocationMarker(location.heading || 0)
-      map.current._userMarker = new mapboxgl.Marker({
-        element: markerElement,
-        anchor: 'center',
-      })
-        .setLngLat([location.longitude, location.latitude])
-        .addTo(map.current)
-    } else {
-      // Always update marker position - this ensures smooth movement
-      map.current._userMarker.setLngLat([location.longitude, location.latitude])
-      const headingDegrees = location.heading !== null && location.heading !== undefined && !isNaN(location.heading) 
-        ? location.heading 
-        : 0
-      const markerElement = map.current._userMarker.getElement()
-      const svgElement = markerElement?.querySelector('svg')
-      if (svgElement) {
-        // Smooth rotation transition
-        svgElement.style.transition = 'transform 0.3s ease-out'
-        svgElement.style.transform = `rotate(${headingDegrees}deg)`
-      }
-    }
-
-    const currentCenter = map.current.getCenter()
-    const distance = Math.sqrt(
-      Math.pow(currentCenter.lng - location.longitude, 2) + 
-      Math.pow(currentCenter.lat - location.latitude, 2)
-    )
-    
-    if (distance > 0.0005) {
-      map.current.flyTo({
-        center: [location.longitude, location.latitude],
-        zoom: 16,
-        duration: 1000,
-      })
-    }
-
-    checkParkStatus(location.latitude, location.longitude)
-    
-    const now = Date.now()
-    const timeSinceLastSpawn = now - lastSpawnGenRef.current
-    
-    if (timeSinceLastSpawn > 30 * 1000 || lastSpawnGenRef.current === 0) {
-      generateSpawnsForLocation(location.latitude, location.longitude)
-      lastSpawnGenRef.current = now
-    }
-  }, [location, mapLoaded, createUserLocationMarker])
-
-  // Also generate spawns periodically (every 2 minutes)
-  useEffect(() => {
-    if (!location) return
-
-    const interval = setInterval(() => {
-      generateSpawnsForLocation(location.latitude, location.longitude)
-      lastSpawnGenRef.current = Date.now()
-    }, 2 * 60 * 1000) // 2 minutes
-
-    return () => clearInterval(interval)
-  }, [location])
-
-  const checkParkStatus = async (lat, lon) => {
-    const result = await checkIfInParkCached(lat, lon)
-    setInPark(result.inPark)
-    setParkName(result.parkName || null)
-  }
-
-  // Generate spawns for a location (async function)
-  const generateSpawnsForLocation = async (lat, lon) => {
-    if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-      console.warn('Cannot generate spawns: invalid location', { lat, lon })
-      return
-    }
-
-    setSpawnGenerating(true)
-    try {
-      const parkStatus = await checkIfInParkCached(lat, lon)
-      const countryCode = await getCountryCodeCached(lat, lon)
-      const spawnCount = await generateSpawns(lat, lon, 500, parkStatus.inPark, countryCode)
-      
-      // Debug info (optional - can be removed if not needed)
-      if (import.meta.env.DEV) {
-        console.log('Spawns generated:', {
-          count: spawnCount,
-          inPark: parkStatus.inPark,
-          countryCode,
-          location: { lat, lon }
-        })
-      }
-    } catch (error) {
-      console.error('Error generating spawns:', error)
-    } finally {
-      setSpawnGenerating(false)
-    }
-  }
+  }, [parseWKBHex])
 
   // Update creature markers
   useEffect(() => {
@@ -1198,7 +1328,7 @@ export default function Map() {
   }
 
   return (
-    <div className="relative w-full h-full" style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+    <div className="relative w-full h-full overflow-hidden" style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Show loading indicator while map is loading */}
       {!mapLoaded && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-20">
@@ -1211,103 +1341,145 @@ export default function Map() {
       
       <div 
         ref={mapContainer} 
-        className="w-full h-full" 
+        className="absolute inset-0 w-full h-full" 
         style={{ 
-          position: 'relative', 
-          zIndex: 1, 
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
           width: '100%', 
           height: '100%',
-          minHeight: '100%',
+          zIndex: 0,
           backgroundColor: mapLoaded ? 'transparent' : '#5b695d'
         }} 
       />
 
       {/* Park boost indicator */}
-      {inPark && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-green-500/90 text-white px-4 py-2 rounded-full shadow-lg z-10">
-          🌳 {parkName || 'Park'} - Boosted Spawns!
-        </div>
-      )}
-
-      {/* Location accuracy indicator */}
-      {location && location.accuracy && (
-        <div className={`absolute top-4 right-4 px-3 py-2 rounded-lg shadow-lg z-10 text-xs ${
-          location.accuracy < 20
-            ? 'bg-green-500/90 text-white'
-            : location.accuracy < 50
-            ? 'bg-yellow-500/90 text-white'
-            : 'bg-orange-500/90 text-white'
-        }`}>
-          <div className="flex items-center gap-2">
-            <span>
-              {location.accuracy < 20
-                ? '🎯 High Accuracy'
-                : location.accuracy < 50
-                ? '📍 Medium Accuracy'
-                : '⚠️ Low Accuracy'}
-            </span>
-            <span className="opacity-80">
-              {location.accuracy < 1000
-                ? `±${Math.round(location.accuracy)}m`
-                : `±${(location.accuracy / 1000).toFixed(1)}km`}
-            </span>
+      {inPark && mapLoaded && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 animate-in fade-in slide-in-from-top duration-500">
+          <div className="relative bg-gradient-to-r from-emerald-500/95 via-emerald-600/95 to-green-600/95 text-white px-6 py-3 rounded-2xl shadow-2xl border-2 border-emerald-300/60 backdrop-blur-xl">
+            <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-green-500/20 rounded-2xl blur-xl -z-10"></div>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <span className="text-2xl filter drop-shadow-lg">🌳</span>
+                <div className="absolute inset-0 bg-emerald-400/30 blur-md rounded-full -z-10"></div>
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold text-base leading-tight text-white text-shadow-sm">{parkName || 'Park'}</span>
+                <span className="text-xs opacity-95 font-semibold text-emerald-50 text-shadow-sm">Boosted Spawn Area</span>
+              </div>
+              <div className="ml-2 bg-white/25 backdrop-blur-sm px-3 py-1 rounded-full border border-white/30">
+                <span className="text-xs font-bold">+2x</span>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Loading indicator - positioned below accuracy indicator if present */}
-      {creaturesLoading && (
-        <div className={`absolute ${location && location.accuracy ? 'top-16' : 'top-4'} right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10`}>
-          Searching for creatures...
-        </div>
-      )}
+      {/* Status indicators - Stacked on right */}
+      {mapLoaded && (
+        <div className="absolute top-4 right-4 z-20 space-y-2.5">
+          {creaturesLoading && (
+            <div className="relative bg-gradient-to-br from-emerald-600/95 to-emerald-700/95 backdrop-blur-xl text-white px-5 py-3 rounded-2xl shadow-2xl border-2 border-emerald-400/50 animate-in fade-in slide-in-from-right duration-300">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-transparent rounded-2xl blur-sm -z-10"></div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-emerald-200/30 border-t-emerald-100"></div>
+                  <div className="absolute inset-0 animate-ping rounded-full h-5 w-5 border border-emerald-300/50"></div>
+                </div>
+                <span className="text-sm font-semibold text-white text-shadow-sm">Searching creatures...</span>
+              </div>
+            </div>
+          )}
 
-      {/* Challenge generation status */}
-      {generatingChallenges && (
-        <div className={`absolute ${location && location.accuracy ? 'top-28' : 'top-16'} right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10`}>
-          Generating challenges...
-        </div>
-      )}
+          {generatingChallenges && (
+            <div className="relative bg-gradient-to-br from-emerald-600/95 to-emerald-700/95 backdrop-blur-xl text-white px-5 py-3 rounded-2xl shadow-2xl border-2 border-emerald-400/50 animate-in fade-in slide-in-from-right duration-300">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-transparent rounded-2xl blur-sm -z-10"></div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-emerald-200/30 border-t-emerald-100"></div>
+                  <div className="absolute inset-0 animate-ping rounded-full h-5 w-5 border border-emerald-300/50"></div>
+                </div>
+                <span className="text-sm font-semibold text-white text-shadow-sm">Creating challenges...</span>
+              </div>
+            </div>
+          )}
 
-      {/* Spawn generation status */}
-      {spawnGenerating && (
-        <div className={`absolute ${location && location.accuracy ? 'top-40' : 'top-28'} right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10`}>
-          Generating spawns...
+          {spawnGenerating && (
+            <div className="relative bg-gradient-to-br from-emerald-600/95 to-emerald-700/95 backdrop-blur-xl text-white px-5 py-3 rounded-2xl shadow-2xl border-2 border-emerald-400/50 animate-in fade-in slide-in-from-right duration-300">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-transparent rounded-2xl blur-sm -z-10"></div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-emerald-200/30 border-t-emerald-100"></div>
+                  <div className="absolute inset-0 animate-ping rounded-full h-5 w-5 border border-emerald-300/50"></div>
+                </div>
+                <span className="text-sm font-semibold text-white text-shadow-sm">Generating spawns...</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Challenges Button - Left side of map */}
-      <button
-        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
-        onClick={() => setShowChallengePanel(true)}
-        title="View Challenges"
-        aria-label="View nearby challenges"
-      >
-        <Target size={20} />
-        {challenges && challenges.length > 0 && (
-          <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-            {challenges ? challenges.filter(c => !c.completed).length : 0}
-          </span>
-        )}
-      </button>
+      {mapLoaded && (
+        <button
+          className="absolute bottom-28 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
+          onClick={() => setShowChallengePanel(true)}
+          title="View Challenges"
+          aria-label="View nearby challenges"
+        >
+          <Target size={24} className="drop-shadow-lg" />
+          {challenges && challenges.length > 0 && (
+            <span className="bg-red-500 text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-lg">
+              {challenges.filter(c => !c.completed).length}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Gyms Button - Left side of map */}
-      <button
-        className="absolute bottom-48 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
-        onClick={() => setShowGymPanel(true)}
-        title="View Gyms"
-        aria-label="View nearby gyms"
-      >
-        <MapPin size={20} />
-        {gyms && gyms.length > 0 && (
-          <span className="bg-yellow-500 text-white text-xs rounded-full px-2 py-0.5">
-            {gyms.length}
-          </span>
-        )}
-      </button>
+      {mapLoaded && (
+        <button
+          className="absolute bottom-40 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 flex items-center gap-2 transition-all transform hover:scale-110"
+          onClick={() => setShowGymPanel(true)}
+          title="View Gyms"
+          aria-label="View nearby gyms"
+        >
+          <MapPin size={24} className="drop-shadow-lg" />
+          {gyms && gyms.length > 0 && (
+            <span className="bg-yellow-500 text-white text-xs font-bold rounded-full px-2.5 py-1 shadow-lg">
+              {gyms.length}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Center on Location Button */}
+      {mapLoaded && location && (
+        <button
+          className="absolute bottom-16 left-4 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white p-4 rounded-full shadow-2xl border-2 border-emerald-400/50 z-20 transition-all transform hover:scale-110"
+          onClick={() => {
+            if (map.current && location) {
+              map.current.flyTo({
+                center: [location.longitude, location.latitude],
+                zoom: 18,
+                pitch: 50,
+                bearing: 0,
+                duration: 1500,
+                essential: true,
+              })
+            }
+          }}
+          title="Center on My Location"
+          aria-label="Center map on your current location"
+        >
+          <Navigation2 size={24} className="drop-shadow-lg" />
+        </button>
+      )}
 
       {/* AI Assistant */}
-      {location && (
+      {location && mapLoaded && (
         <AIAssistant
           latitude={location.latitude}
           longitude={location.longitude}
@@ -1315,6 +1487,10 @@ export default function Map() {
           parkName={parkName}
         />
       )}
+
+      {/* Bottom spacing for navigation - reduced height */}
+      {/* Spacing for floating bottom nav */}
+      <div className="absolute bottom-0 left-0 right-0 h-20 pointer-events-none"></div>
 
       {/* Catch Modal */}
       {selectedCreature && (

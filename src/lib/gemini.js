@@ -1,18 +1,32 @@
 /**
  * Google Gemini API integration for AI hunting recommendations
+ * 
+ * IMPORTANT: To avoid costs, this will auto-disable after failures.
+ * Set VITE_GEMINI_API_KEY in .env only if you want to use Gemini API.
+ * If not set or disabled, default recommendations will be used (FREE).
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 let genAI = null
 
+// Track failures and disable if consistently failing (prevents API costs)
+let geminiFailureCount = 0
+const MAX_FAILURES = 3 // Disable after 3 failures
+let geminiDisabled = false
+
 /**
  * Initialize Gemini API client
  */
 function initGemini() {
+  // If disabled due to failures, don't initialize
+  if (geminiDisabled) {
+    return null
+  }
+  
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-  if (!apiKey) {
-    console.warn('Gemini API key not found. AI recommendations will be disabled.')
+  if (!apiKey || apiKey.trim() === '') {
+    // No API key - use defaults (FREE, no costs)
     return null
   }
 
@@ -36,16 +50,37 @@ function initGemini() {
  * @returns {Promise<Array<string>>} Array of recommendation strings
  */
 export async function getHuntingRecommendations(context) {
+  // If Gemini is disabled, use defaults immediately (NO API CALL = NO COST)
+  if (geminiDisabled) {
+    return getDefaultRecommendations(context)
+  }
+  
   try {
     const client = initGemini()
     if (!client) {
-      // Return default recommendations if Gemini is not available
+      // No API key or client - use defaults (FREE, no costs)
       return getDefaultRecommendations(context)
     }
 
-    // Use gemini-1.5-flash as it's faster and free, or gemini-1.5-pro for better quality
-    // gemini-pro is deprecated, use gemini-1.5-flash or gemini-1.5-pro
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    // Try to get model - if this fails, we'll disable Gemini
+    let model
+    try {
+      // Try gemini-1.5-flash-latest first (correct format for v1 API)
+      model = client.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
+    } catch (modelError1) {
+      try {
+        // Try gemini-1.5-pro-latest
+        model = client.getGenerativeModel({ model: 'gemini-1.5-pro-latest' })
+      } catch (modelError2) {
+        // Both failed - disable Gemini to prevent further costs
+        geminiFailureCount++
+        if (geminiFailureCount >= MAX_FAILURES) {
+          geminiDisabled = true
+          console.warn('⚠️ Gemini API disabled due to model errors. Using default recommendations (FREE). This prevents API costs.')
+        }
+        return getDefaultRecommendations(context)
+      }
+    }
 
     const prompt = `You are a helpful guide for a creature-hunting game similar to Pokemon GO.
 
@@ -71,6 +106,9 @@ Be creative and location-specific!`
     const response = await result.response
     const text = response.text()
 
+    // Reset failure count on success
+    geminiFailureCount = 0
+
     // Parse tips (split by newlines, filter empty)
     const tips = text
       .split('\n')
@@ -80,7 +118,17 @@ Be creative and location-specific!`
 
     return tips.length > 0 ? tips : getDefaultRecommendations(context)
   } catch (error) {
-    console.error('Error getting AI recommendations:', error)
+    // Track failures and disable if too many
+    geminiFailureCount++
+    console.warn(`Gemini API error (${geminiFailureCount}/${MAX_FAILURES}):`, error.message)
+    
+    if (geminiFailureCount >= MAX_FAILURES) {
+      geminiDisabled = true
+      console.warn('⚠️ Gemini API permanently disabled due to repeated failures. Using default recommendations (FREE). This prevents API costs.')
+      console.warn('💡 To re-enable: Remove VITE_GEMINI_API_KEY from .env or fix the API key.')
+    }
+    
+    // Always return defaults on error (NO RETRY = NO COST)
     return getDefaultRecommendations(context)
   }
 }
@@ -113,7 +161,7 @@ function getDefaultRecommendations(context) {
  * Cache recommendations to avoid excessive API calls
  */
 const recommendationCache = new Map()
-const CACHE_TTL = 30 * 60 * 1000 // 30 minutes
+const CACHE_TTL = 60 * 60 * 1000 // 60 minutes (increased to save Gemini API calls)
 
 /**
  * Get cached recommendations
@@ -122,12 +170,18 @@ const CACHE_TTL = 30 * 60 * 1000 // 30 minutes
  * @returns {Promise<Array<string>>}
  */
 export async function getCachedRecommendations(locationKey, context) {
+  // If Gemini is disabled, skip cache and return defaults immediately (NO API CALL = NO COST)
+  if (geminiDisabled) {
+    return getDefaultRecommendations(context)
+  }
+  
   const cached = recommendationCache.get(locationKey)
 
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.recommendations
   }
 
+  // This will return defaults if Gemini is disabled or fails
   const recommendations = await getHuntingRecommendations(context)
   recommendationCache.set(locationKey, {
     recommendations,
@@ -135,5 +189,13 @@ export async function getCachedRecommendations(locationKey, context) {
   })
 
   return recommendations
+}
+
+/**
+ * Check if Gemini API is currently disabled
+ * @returns {boolean}
+ */
+export function isGeminiDisabled() {
+  return geminiDisabled || !import.meta.env.VITE_GEMINI_API_KEY
 }
 

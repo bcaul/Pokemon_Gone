@@ -42,9 +42,20 @@ export function useLocationTracking(location) {
       const jumpThreshold = Math.min(accuracyThreshold, timeBasedThreshold)
 
       // Only count movement for distance tracking if it's reasonable
-      // Minimum 3 meters to count as movement (filter GPS jitter)
-      if (distance >= 3 && distance < jumpThreshold) {
+      // Minimum 2 meters to count as movement (filter GPS jitter)
+      if (distance >= 2 && distance < jumpThreshold) {
         distanceTraveledRef.current += distance
+      } else if (distance > 0 && distance < 2) {
+        // Tiny movements - accumulate them (GPS jitter compensation)
+        // This helps track slow movement that would otherwise be filtered out
+        if (!lastLocationRef.current.accumulatedSmallDistance) {
+          lastLocationRef.current.accumulatedSmallDistance = 0
+        }
+        lastLocationRef.current.accumulatedSmallDistance += distance
+        if (lastLocationRef.current.accumulatedSmallDistance >= 2) {
+          distanceTraveledRef.current += lastLocationRef.current.accumulatedSmallDistance
+          lastLocationRef.current.accumulatedSmallDistance = 0
+        }
       } else if (distance >= jumpThreshold) {
         // Log but don't prevent location update - location should still update on map
         // This might be a legitimate jump (GPS lock, network change, etc.)
@@ -68,8 +79,8 @@ export function useLocationTracking(location) {
     const updateWalkingChallenges = async () => {
       const now = Date.now()
       const timeSinceLastUpdate = now - lastUpdateTimeRef.current
-      const updateInterval = 30000 // Update every 30 seconds
-      const minDistanceForUpdate = 10 // Minimum 10 meters to update
+      const updateInterval = 20000 // Update every 20 seconds (more frequent)
+      const minDistanceForUpdate = 5 // Minimum 5 meters to update (more sensitive)
 
       // Update if enough time has passed and distance traveled
       if (timeSinceLastUpdate >= updateInterval && distanceTraveledRef.current >= minDistanceForUpdate) {
@@ -77,12 +88,15 @@ export function useLocationTracking(location) {
           const { data: { user } } = await supabase.auth.getUser()
           if (user && location) {
             const distanceToUpdate = distanceTraveledRef.current
+            
+            // Update walking challenges
             await updateWalkingChallengeProgress(
               user.id,
               location.latitude,
               location.longitude,
               distanceToUpdate
             )
+            
             distanceTraveledRef.current = 0 // Reset after updating
             lastUpdateTimeRef.current = now
           }
@@ -97,13 +111,14 @@ export function useLocationTracking(location) {
       clearInterval(trackingIntervalRef.current)
     }
 
-    trackingIntervalRef.current = setInterval(updateWalkingChallenges, 30000) // Check every 30 seconds
+    trackingIntervalRef.current = setInterval(updateWalkingChallenges, 20000) // Check every 20 seconds
 
-    // Also update immediately if significant distance traveled (100m+)
-    if (distanceTraveledRef.current >= 100) {
+    // Also update immediately if significant distance traveled (50m+)
+    if (distanceTraveledRef.current >= 50) {
       updateWalkingChallenges()
     }
-
+    
+    // Cleanup on unmount
     return () => {
       if (trackingIntervalRef.current) {
         clearInterval(trackingIntervalRef.current)

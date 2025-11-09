@@ -218,6 +218,15 @@ function selectCreatureByRarity(creatureTypes, parkBoost = false) {
     if (random <= cumulative && byRarity[rarity].length > 0) {
       // Random creature from selected rarity
       const creatures = byRarity[rarity]
+      
+      // Boost Geckrow spawn rate: 30% chance to select Geckrow if it's in the common pool
+      if (rarity === 'common') {
+        const geckrow = creatures.find(c => c.name === 'Geckrow')
+        if (geckrow && Math.random() < 0.30) {
+          return geckrow
+        }
+      }
+      
       return creatures[Math.floor(Math.random() * creatures.length)]
     }
   }

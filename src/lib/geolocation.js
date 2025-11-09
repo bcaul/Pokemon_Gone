@@ -13,11 +13,11 @@ export async function getCurrentLocation() {
       return
     }
 
-    const options = {
-      enableHighAccuracy: true, // Required for heading information
-      timeout: 10000,
-      maximumAge: 0, // Don't use cached position
-    }
+  const options = {
+    enableHighAccuracy: true, // Required for heading information
+    timeout: 15000, // Increased timeout for better accuracy
+    maximumAge: 0, // Don't use cached position - always get fresh
+  }
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -67,8 +67,8 @@ export function watchLocation(onSuccess, onError) {
 
   const options = {
     enableHighAccuracy: true,
-    timeout: 10000,
-    maximumAge: 5000, // Use cached position if < 5 seconds old
+    timeout: 15000, // Increased timeout for better accuracy
+    maximumAge: 2000, // Use cached position only if < 2 seconds old for better real-time tracking
   }
 
   return navigator.geolocation.watchPosition(

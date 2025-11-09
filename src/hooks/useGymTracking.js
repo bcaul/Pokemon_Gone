@@ -24,9 +24,9 @@ export function useGymTracking(location, gyms) {
           return
         }
 
-        // Throttle updates (every 30 seconds)
+        // Throttle updates (every 2 minutes to save on database writes)
         const now = Date.now()
-        if (now - lastUpdateRef.current < 30000) {
+        if (now - lastUpdateRef.current < 120000) {
           return
         }
 
@@ -45,11 +45,11 @@ export function useGymTracking(location, gyms) {
       }
     }
 
-    // Update immediately
+    // Update immediately on first load
     updateGymTracking()
 
-    // Set up interval for periodic updates
-    const intervalId = setInterval(updateGymTracking, 30000) // Every 30 seconds
+    // Set up interval for periodic updates (reduced frequency to save costs)
+    const intervalId = setInterval(updateGymTracking, 120000) // Every 2 minutes
 
     return () => {
       clearInterval(intervalId)
@@ -70,8 +70,9 @@ export function useGymTracking(location, gyms) {
       }
     }
 
-    // Refresh every 5 minutes to ensure gyms always have creatures
-    spawnCheckIntervalRef.current = setInterval(refreshAndCheck, 5 * 60000) // Every 5 minutes
+    // Refresh every 10 minutes to ensure gyms always have creatures
+    // Reduced frequency to save on database RPC calls
+    spawnCheckIntervalRef.current = setInterval(refreshAndCheck, 10 * 60000) // Every 10 minutes
 
     // Initial refresh
     refreshAndCheck()

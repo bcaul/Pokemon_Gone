@@ -33,7 +33,7 @@ export async function sendVoucherEmail(voucherId) {
     if (!userEmail) throw new Error('User email not found')
 
     // Call Supabase Edge Function to send email
-    const { data, error: functionError } = await supabase.functions.invoke('send-voucher-email', {
+    const response = await supabase.functions.invoke('send-voucher-email', {
       body: {
         voucher_id: voucherId,
         user_email: userEmail,
@@ -44,27 +44,101 @@ export async function sendVoucherEmail(voucherId) {
         expires_at: voucher.expires_at,
       },
     })
+    
+    const responseData = response.data
+    const responseError = response.error
 
-    if (functionError) {
-      console.error('Error calling email function:', functionError)
-      throw new Error(`Failed to send email: ${functionError.message}`)
+    // Check for errors in the response
+    if (responseError) {
+      // Extract error details from response
+      let errorMessage = responseError.message || 'Unknown error'
+      let errorDetails = null
+      let errorCode = null
+      
+      // Check responseError.context (Supabase FunctionsHttpError structure)
+      if (responseError.context) {
+        try {
+          errorDetails = typeof responseError.context === 'string' 
+            ? JSON.parse(responseError.context) 
+            : responseError.context
+          if (errorDetails.error || errorDetails.message) {
+            errorMessage = errorDetails.error || errorDetails.message || errorMessage
+          }
+          if (errorDetails.code) {
+            errorCode = errorDetails.code
+          }
+        } catch (e) {
+          errorDetails = responseError.context
+        }
+      }
+      
+      // Check responseError.error (alternative error location)
+      if (responseError.error) {
+        if (typeof responseError.error === 'object') {
+          errorDetails = responseError.error
+          if (errorDetails.error || errorDetails.message) {
+            errorMessage = errorDetails.error || errorDetails.message || errorMessage
+          }
+          if (errorDetails.code) {
+            errorCode = errorDetails.code
+          }
+        } else if (typeof responseError.error === 'string') {
+          errorMessage = responseError.error
+        }
+      }
+      
+      // Check if error message or code indicates configuration issue
+      const isConfigError = errorCode === 'EMAIL_NOT_CONFIGURED' ||
+                           errorMessage.includes('RESEND_API_KEY') || 
+                           errorMessage.includes('not configured') || 
+                           errorMessage.includes('Email service not configured') ||
+                           errorMessage.includes('EMAIL_NOT_CONFIGURED')
+      
+      if (isConfigError) {
+        const configError = new Error('EMAIL_NOT_CONFIGURED')
+        configError.details = errorDetails || responseError
+        throw configError
+      }
+      
+      if (errorMessage.includes('Missing required fields')) {
+        throw new Error('Invalid email request. Please try again or contact support.')
+      }
+      
+      // Generic error - provide helpful message with voucher info
+      throw new Error(`Failed to send email: ${errorMessage}. Your voucher code (${voucher.voucher_code}) and prize details are shown in the app and can be used as proof.`)
+    }
+    
+    // Check if the response data indicates an error
+    if (responseData && responseData.error) {
+      // Check if it's a configuration error
+      if (responseData.code === 'EMAIL_NOT_CONFIGURED' || 
+          responseData.error.includes('not configured') || 
+          responseData.error.includes('RESEND_API_KEY')) {
+        const configError = new Error('EMAIL_NOT_CONFIGURED')
+        configError.details = responseData
+        throw configError
+      }
+      
+      throw new Error(responseData.error || responseData.message || 'Failed to send email')
     }
 
-    // Update voucher to indicate email was sent
-    const { error: updateError } = await supabase
-      .from('vouchers')
-      .update({ 
-        email_sent: true, 
-        email_sent_at: new Date().toISOString() 
-      })
-      .eq('id', voucherId)
+    // Update voucher to indicate email was sent (only if we got a successful response)
+    if (responseData && !responseData.error) {
+      const { error: updateError } = await supabase
+        .from('vouchers')
+        .update({ 
+          email_sent: true, 
+          email_sent_at: new Date().toISOString() 
+        })
+        .eq('id', voucherId)
 
-    if (updateError) {
-      console.error('Error updating voucher email status:', updateError)
-      // Don't throw - email was sent, just couldn't update status
+      if (updateError) {
+        console.error('Error updating voucher email status:', updateError)
+        // Don't throw - email was sent, just couldn't update status
+      }
     }
 
-    return { success: true, data }
+    return { success: true, data: responseData }
   } catch (error) {
     console.error('Error sending voucher email:', error)
     throw error

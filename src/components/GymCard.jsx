@@ -15,8 +15,9 @@ export default function GymCard({ gym, userLatitude, userLongitude }) {
 
   useEffect(() => {
     fetchGymData()
-    // Refresh more frequently to catch RSVP updates (10 seconds)
-    const interval = setInterval(fetchGymData, 10000)
+    // Refresh every 30 seconds (realtime subscription handles immediate RSVP updates)
+    // Reduced from 10s to save on Supabase API calls
+    const interval = setInterval(fetchGymData, 30000)
     
     // Also subscribe to real-time RSVP changes for this gym
     const subscription = supabase

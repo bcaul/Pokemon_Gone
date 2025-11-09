@@ -95,8 +95,13 @@ export default function Collection() {
     }
   }
 
-  // Group catches by creature type
+
+  // Group catches by creature type (only process if we have valid data)
   const groupedCatches = catches.reduce((acc, catchItem) => {
+    // Skip invalid catch items
+    if (!catchItem || !catchItem.creature_type_id || !catchItem.creature_types) {
+      return acc
+    }
     const creatureId = catchItem.creature_type_id
     if (!acc[creatureId]) {
       acc[creatureId] = {
@@ -108,7 +113,7 @@ export default function Collection() {
     }
     acc[creatureId].catches.push(catchItem)
     acc[creatureId].count++
-    acc[creatureId].highestCP = Math.max(acc[creatureId].highestCP, catchItem.cp_level)
+    acc[creatureId].highestCP = Math.max(acc[creatureId].highestCP, catchItem.cp_level || 0)
     return acc
   }, {})
 
@@ -126,36 +131,41 @@ export default function Collection() {
 
   if (filter !== 'all') {
     filteredCatches = filteredCatches.filter(
-      item => item.creature.rarity === filter
+      item => item.creature && item.creature.rarity === filter
     )
   }
 
-  // Apply sorting
-  if (sortBy === 'cp') {
-    filteredCatches.sort((a, b) => {
-      const result = b.highestCP - a.highestCP
-      return sortOrder === 'asc' ? -result : result
-    })
-  } else if (sortBy === 'name') {
-    filteredCatches.sort((a, b) => {
-      const result = a.creature.name.localeCompare(b.creature.name)
-      return sortOrder === 'asc' ? result : -result
-    })
-  } else if (sortBy === 'rarity') {
-    filteredCatches.sort((a, b) => {
-      const aRarity = rarityOrder[a.creature.rarity] || 0
-      const bRarity = rarityOrder[b.creature.rarity] || 0
-      const result = bRarity - aRarity
-      return sortOrder === 'asc' ? -result : result
-    })
-  } else {
-    // Sort by most recent catch (date)
-    filteredCatches.sort((a, b) => {
-      const aDate = new Date(a.catches[0].caught_at)
-      const bDate = new Date(b.catches[0].caught_at)
-      const result = bDate - aDate
-      return sortOrder === 'asc' ? -result : result
-    })
+  // Apply sorting with defensive checks
+  if (filteredCatches.length > 0) {
+    if (sortBy === 'cp') {
+      filteredCatches.sort((a, b) => {
+        const result = (b.highestCP || 0) - (a.highestCP || 0)
+        return sortOrder === 'asc' ? -result : result
+      })
+    } else if (sortBy === 'name') {
+      filteredCatches.sort((a, b) => {
+        const aName = a.creature?.name || ''
+        const bName = b.creature?.name || ''
+        const result = aName.localeCompare(bName)
+        return sortOrder === 'asc' ? result : -result
+      })
+    } else if (sortBy === 'rarity') {
+      filteredCatches.sort((a, b) => {
+        const aRarity = rarityOrder[a.creature?.rarity] || 0
+        const bRarity = rarityOrder[b.creature?.rarity] || 0
+        const result = bRarity - aRarity
+        return sortOrder === 'asc' ? -result : result
+      })
+    } else {
+      // Sort by most recent catch (date)
+      filteredCatches.sort((a, b) => {
+        if (!a.catches || !a.catches[0] || !b.catches || !b.catches[0]) return 0
+        const aDate = new Date(a.catches[0].caught_at)
+        const bDate = new Date(b.catches[0].caught_at)
+        const result = bDate - aDate
+        return sortOrder === 'asc' ? -result : result
+      })
+    }
   }
 
   const getRarityColor = (rarity) => {
@@ -206,8 +216,8 @@ export default function Collection() {
       <div className="mb-10">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-3">
           <div>
-            <h1 className="text-5xl md:text-6xl font-bold text-white mb-3 collection-card-text tracking-tight">My Collection</h1>
-            <p className="text-white/90 text-base md:text-lg collection-card-text font-medium">
+            <h1 className="text-5xl md:text-6xl font-extrabold text-white mb-3 collection-card-text tracking-tight text-shadow-lg">My Collection</h1>
+            <p className="text-white/95 text-base md:text-lg collection-card-text font-semibold text-shadow-sm">
               {filteredCatches.length} {filteredCatches.length === 1 ? 'creature' : 'creatures'} collected
             </p>
           </div>
@@ -215,8 +225,8 @@ export default function Collection() {
           <div className="collection-card rounded-xl p-4 md:p-5 flex items-center gap-3">
             <Star className="text-primary" size={24} />
             <div>
-              <p className="text-white/70 text-xs md:text-sm collection-card-text font-medium">Challenge Points</p>
-              <p className="text-2xl md:text-3xl font-bold text-white collection-card-text">{points}</p>
+              <p className="text-white/80 text-xs md:text-sm collection-card-text font-semibold uppercase tracking-wider text-shadow-sm">Challenge Points</p>
+              <p className="text-2xl md:text-3xl font-extrabold text-white collection-card-text text-shadow-md">{points}</p>
             </div>
           </div>
         </div>
@@ -225,8 +235,8 @@ export default function Collection() {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mb-10">
         <div className="collection-card rounded-xl p-6 transition-transform hover:scale-105">
-          <p className="text-white/75 text-xs md:text-sm uppercase tracking-wider mb-3 collection-card-text font-semibold">Total Catches</p>
-          <p className="text-4xl md:text-5xl font-bold text-white collection-card-text leading-tight">{catches.length}</p>
+          <p className="text-white/85 text-xs md:text-sm uppercase tracking-wider mb-3 collection-card-text font-bold text-shadow-sm">Total Catches</p>
+          <p className="text-4xl md:text-5xl font-extrabold text-white collection-card-text leading-tight text-shadow-lg">{catches.length}</p>
         </div>
         <div className="collection-card rounded-xl p-6 transition-transform hover:scale-105">
           <p className="text-white/75 text-xs md:text-sm uppercase tracking-wider mb-3 collection-card-text font-semibold">Unique Species</p>
@@ -251,10 +261,10 @@ export default function Collection() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
           {/* Filters */}
           <div className="flex flex-wrap gap-3 items-center">
-            <span className="text-white/80 text-base md:text-lg self-center collection-card-text font-semibold mr-1">Filter:</span>
+            <span className="text-white/90 text-base md:text-lg self-center collection-card-text font-bold mr-1 text-shadow-sm">Filter:</span>
             <button
               onClick={() => setFilter('all')}
-              className={`px-5 py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all duration-200 collection-card-text ${
+              className={`px-5 py-2.5 rounded-lg font-bold text-sm md:text-base transition-all duration-200 collection-card-text text-shadow-sm ${
                 filter === 'all'
                   ? 'bg-primary text-white shadow-lg scale-105'
                   : 'collection-card text-white hover:bg-opacity-100 hover:scale-105'
@@ -266,7 +276,7 @@ export default function Collection() {
               <button
                 key={rarity}
                 onClick={() => setFilter(rarity)}
-                className={`px-5 py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all duration-200 capitalize collection-card-text ${
+                className={`px-5 py-2.5 rounded-lg font-bold text-sm md:text-base transition-all duration-200 capitalize collection-card-text text-shadow-sm ${
                   filter === rarity
                     ? 'bg-primary text-white shadow-lg scale-105'
                     : 'collection-card text-white hover:bg-opacity-100 hover:scale-105'
@@ -279,7 +289,7 @@ export default function Collection() {
 
           {/* Sort */}
           <div className="flex items-center gap-3 flex-wrap">
-            <label className="text-white/80 text-base md:text-lg collection-card-text font-semibold">Sort by:</label>
+            <label className="text-white/90 text-base md:text-lg collection-card-text font-bold text-shadow-sm">Sort by:</label>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -317,52 +327,64 @@ export default function Collection() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5 md:gap-6">
           {filteredCatches.map((item) => {
-            const isLegendary = item.creature.rarity === 'legendary';
+            // Safety check - skip invalid items
+            if (!item || !item.creature) {
+              return null
+            }
+            
+            const isLegendary = item.creature?.rarity === 'legendary';
+            const creatureName = item.creature?.name || 'Unknown';
+            const creatureRarity = item.creature?.rarity || 'common';
+            
             return (
             <div
-              key={item.creature.id}
-              className={`collection-card rounded-xl transition-all duration-200 hover:scale-105 hover:shadow-xl ${getRarityColor(item.creature.rarity)} ${isLegendary ? 'legendary-card' : 'p-5 md:p-6'}`}
+              key={item.creature?.id || Math.random()}
+              className={`collection-card rounded-xl transition-all duration-200 hover:scale-105 hover:shadow-xl ${getRarityColor(creatureRarity)} ${isLegendary ? 'legendary-card' : 'p-5 md:p-6'}`}
             >
               <div className={isLegendary ? 'p-5 md:p-6 relative z-10' : ''}>
                 <div className="text-center mb-5 flex justify-center items-center h-32 md:h-36 bg-white/5 rounded-lg">
                 {getCreatureSprite(item.creature) ? (
                   <img 
                     src={getCreatureSprite(item.creature)} 
-                    alt={item.creature.name}
+                    alt={creatureName}
                     className="w-32 h-32 md:w-36 md:h-36 object-contain"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
-                      e.target.style.display = 'none'
-                      e.target.nextSibling.style.display = 'block'
+                      if (e.target) {
+                        e.target.style.display = 'none'
+                        if (e.target.nextSibling) {
+                          e.target.nextSibling.style.display = 'block'
+                        }
+                      }
                     }}
                   />
                 ) : null}
                 <div className="text-8xl md:text-9xl" style={{ display: getCreatureSprite(item.creature) ? 'none' : 'block' }}>
-                  {getCreatureEmoji(item.creature.name)}
+                  {getCreatureEmoji(creatureName)}
                 </div>
               </div>
-              <h3 className="font-bold text-white text-center mb-3 text-lg md:text-xl collection-card-text leading-tight">
-                {item.creature.name}
+              <h3 className="font-extrabold text-white text-center mb-3 text-lg md:text-xl collection-card-text leading-tight text-shadow-md">
+                {creatureName}
               </h3>
               <div className="text-center mb-4">
-                <span className={`text-xs md:text-sm px-3 py-1.5 rounded-full capitalize collection-card-text font-semibold ${
-                  item.creature.rarity === 'common' ? 'bg-secondary/30 text-secondary' :
-                  item.creature.rarity === 'uncommon' ? 'bg-accent/30 text-accent' :
-                  item.creature.rarity === 'rare' ? 'bg-rare/30 text-rare' :
-                  item.creature.rarity === 'epic' ? 'bg-primary/30 text-primary' :
+                <span className={`text-xs md:text-sm px-3 py-1.5 rounded-full capitalize collection-card-text font-bold text-shadow-sm ${
+                  creatureRarity === 'common' ? 'bg-secondary/30 text-secondary' :
+                  creatureRarity === 'uncommon' ? 'bg-accent/30 text-accent' :
+                  creatureRarity === 'rare' ? 'bg-rare/30 text-rare' :
+                  creatureRarity === 'epic' ? 'bg-primary/30 text-primary' :
                   'bg-legendary/30 text-legendary'
                 }`}>
-                  {item.creature.rarity}
+                  {creatureRarity}
                 </span>
               </div>
-              <div className="text-center text-sm md:text-base text-white/90 space-y-2 collection-card-text">
+              <div className="text-center text-sm md:text-base text-white/95 space-y-2 collection-card-text">
                 <div className="flex justify-between items-center">
-                  <span className="text-white/75 font-medium">Caught:</span>
-                  <span className="font-bold text-white">{item.count}x</span>
+                  <span className="text-white/85 font-semibold text-shadow-sm">Caught:</span>
+                  <span className="font-extrabold text-white text-shadow-md">{item.count || 0}x</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-white/75 font-medium">Max CP:</span>
-                  <span className="font-bold text-white">{item.highestCP}</span>
+                  <span className="text-white/85 font-semibold text-shadow-sm">Max CP:</span>
+                  <span className="font-extrabold text-white text-shadow-md">{item.highestCP || 0}</span>
                 </div>
               </div>
               </div>

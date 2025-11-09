@@ -80,8 +80,8 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
 
     checkGymStatus()
     
-    // Refresh player count every 10 seconds
-    const interval = setInterval(checkGymStatus, 10000)
+    // Refresh player count every 30 seconds (reduced to save API calls)
+    const interval = setInterval(checkGymStatus, 30000)
     return () => clearInterval(interval)
   }, [creature.id])
   
@@ -366,33 +366,63 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
                     await new Promise(resolve => setTimeout(resolve, 500))
                     
                     // Get the challenge details to check if it's a business challenge
-                    const { data: challengeData } = await supabase
+                    // BUSINESS CHALLENGES are identified by having business_id (not null)
+                    const { data: challengeData, error: challengeError } = await supabase
                       .from('challenges')
-                      .select('business_id, prize_description')
+                      .select('business_id, prize_description, name, businesses:business_id (business_name, address)')
                       .eq('id', result.challengeId)
                       .single()
                     
-                    if (challengeData && challengeData.business_id && challengeData.prize_description) {
-                      // This is a business challenge - find the voucher and send email
-                      const { data: vouchers } = await supabase
+                    // If challenge has business_id, it's a business challenge - send email
+                    if (challengeData && challengeData.business_id) {
+                      // Wait for database trigger to create voucher
+                      await new Promise(resolve => setTimeout(resolve, 1000))
+                      
+                      // Find the voucher and send email
+                      const { data: vouchers, error: voucherError } = await supabase
                         .from('vouchers')
-                        .select('id, email_sent')
+                        .select('id, email_sent, voucher_code, prize_description')
                         .eq('user_id', user.id)
                         .eq('challenge_id', result.challengeId)
                         .order('issued_at', { ascending: false })
                         .limit(1)
                       
+                      if (voucherError) {
+                        console.error('Error fetching voucher:', voucherError)
+                      }
+                      
                       if (vouchers && vouchers.length > 0) {
                         const voucher = vouchers[0]
+                        
                         // Only send email if not already sent
                         if (!voucher.email_sent) {
                           try {
                             await sendVoucherEmail(voucher.id)
                           } catch (emailError) {
+                            // Email errors are handled gracefully - voucher is still created
+                            // User can resend from vouchers page if needed
                             console.error('Error sending voucher email:', emailError)
-                            // Don't fail the catch if email fails - user can resend from vouchers page
                           }
                         }
+                      } else {
+                        // Retry after delay (database trigger might be slow)
+                        setTimeout(async () => {
+                          const { data: retryVouchers } = await supabase
+                            .from('vouchers')
+                            .select('id, email_sent')
+                            .eq('user_id', user.id)
+                            .eq('challenge_id', result.challengeId)
+                            .order('issued_at', { ascending: false })
+                            .limit(1)
+                          
+                          if (retryVouchers && retryVouchers.length > 0 && !retryVouchers[0].email_sent) {
+                            try {
+                              await sendVoucherEmail(retryVouchers[0].id)
+                            } catch (retryError) {
+                              console.error('Error sending voucher email on retry:', retryError)
+                            }
+                          }
+                        }, 2000)
                       }
                     }
                   } catch (voucherError) {
@@ -516,10 +546,10 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
                   {getCreatureEmoji(creatureType.name)}
                 </div>
               </div>
-              <h2 className={`text-3xl font-bold mb-2 ${getRarityColor(creatureType.rarity)}`}>
+              <h2 className={`text-3xl font-extrabold mb-2 text-shadow-lg ${getRarityColor(creatureType.rarity)}`}>
                 {creatureType.name}
               </h2>
-              <p className="text-gray-400 capitalize">{creatureType.rarity} • {creatureType.type}</p>
+              <p className="text-gray-300 capitalize font-semibold text-shadow-sm">{creatureType.rarity} • {creatureType.type}</p>
             </div>
 
             {/* Gym creature indicator */}

@@ -79,11 +79,17 @@ export default function Vouchers() {
   const handleResendEmail = async (voucher) => {
     try {
       await sendVoucherEmail(voucher.id)
-      alert('Email sent! Check your inbox.')
+      alert('✅ Email sent! Check your inbox for your voucher details.')
       fetchVouchers() // Refresh to update email_sent status
     } catch (error) {
       console.error('Error sending email:', error)
-      alert('Error sending email. Please contact support.')
+      
+      // Check if email service is not configured
+      if (error.message === 'EMAIL_NOT_CONFIGURED' || error.message?.includes('not configured')) {
+        alert('📧 Email service is not set up yet. Your voucher details are shown below - you can use this as proof of your prize!\n\nVoucher Code: ' + voucher.voucher_code + '\nPrize: ' + voucher.prize_description)
+      } else {
+        alert('⚠️ Could not send email. Your voucher details are shown below - you can use this as proof of your prize!\n\nVoucher Code: ' + voucher.voucher_code + '\nPrize: ' + voucher.prize_description + '\n\nError: ' + (error.message || 'Unknown error'))
+      }
     }
   }
 
@@ -191,22 +197,29 @@ export default function Vouchers() {
               )}
 
               {voucher.status === 'active' && (
-                <div className="flex gap-2">
-                  {!voucher.email_sent && (
-                    <button
-                      onClick={() => handleResendEmail(voucher)}
-                      className="flex items-center gap-2 bg-secondary hover:bg-secondary/90 text-white px-4 py-2 rounded-lg transition-colors"
-                    >
-                      <Mail size={16} />
-                      <span>Send Email</span>
-                    </button>
-                  )}
-                  {voucher.email_sent && (
-                    <div className="flex items-center gap-2 text-green-400 text-sm">
-                      <Mail size={16} />
-                      <span>Email sent {new Date(voucher.email_sent_at).toLocaleDateString()}</span>
-                    </div>
-                  )}
+                <div className="flex flex-col gap-2">
+                  <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-lg p-3 mb-2">
+                    <p className="text-yellow-200 text-sm font-semibold mb-1">🎁 Your Prize Verification</p>
+                    <p className="text-white text-sm mb-2">{voucher.prize_description}</p>
+                    <p className="text-yellow-200 text-xs">Use the voucher code above as proof when redeeming at {voucher.businesses?.business_name || 'the business'}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {!voucher.email_sent && (
+                      <button
+                        onClick={() => handleResendEmail(voucher)}
+                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold"
+                      >
+                        <Mail size={16} />
+                        <span>Send Email with Voucher</span>
+                      </button>
+                    )}
+                    {voucher.email_sent && (
+                      <div className="flex items-center gap-2 text-green-400 text-sm bg-green-400/10 border border-green-400/30 rounded-lg px-4 py-2">
+                        <Mail size={16} />
+                        <span>✅ Email sent on {new Date(voucher.email_sent_at).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

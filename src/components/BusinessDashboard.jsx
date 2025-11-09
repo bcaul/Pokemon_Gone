@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { useNavigate, Link } from 'react-router-dom'
-import { Plus, Target, Gift, Users, LogOut, Settings } from 'lucide-react'
+import { Plus, Target, Gift, Users, LogOut, Settings, Store } from 'lucide-react'
 import CreateChallenge from './CreateChallenge.jsx'
 import BusinessChallenges from './BusinessChallenges.jsx'
 
@@ -9,6 +9,7 @@ export default function BusinessDashboard() {
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('challenges') // 'challenges', 'create', 'vouchers', 'settings'
+  const [refreshKey, setRefreshKey] = useState(0) // Key to force refresh of BusinessChallenges
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -81,18 +82,23 @@ export default function BusinessDashboard() {
   }
 
   return (
-    <div className="h-screen w-screen bg-background flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="bg-surface border-b border-gray-700 flex-shrink-0">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+    <div className="h-screen w-full bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 flex flex-col overflow-hidden">
+      {/* Header with Enhanced Styling */}
+      <div className="bg-gradient-to-r from-emerald-800/90 via-emerald-700/90 to-emerald-800/90 border-b-2 border-emerald-500/50 flex-shrink-0 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-white">{business.business_name}</h1>
-              <p className="text-gray-400 text-sm capitalize">{business.business_type}</p>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-emerald-600/50 rounded-xl border-2 border-emerald-400/50 shadow-lg">
+                <Store size={28} className="text-emerald-100" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-black text-white drop-shadow-lg tracking-tight">{business.business_name}</h1>
+                <p className="text-emerald-200 text-sm font-semibold capitalize mt-1">{business.business_type}</p>
+              </div>
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg transition-colors"
+              className="flex items-center gap-2 bg-emerald-700/80 hover:bg-emerald-600/90 px-5 py-2.5 rounded-lg transition-colors border-2 border-emerald-500/50 shadow-lg text-white font-semibold"
             >
               <LogOut size={20} />
               <span>Sign Out</span>
@@ -101,16 +107,16 @@ export default function BusinessDashboard() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-surface border-b border-gray-700 flex-shrink-0">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-4 overflow-x-auto">
+      {/* Tabs with Modern Styling */}
+      <div className="bg-emerald-900/60 border-b-2 border-emerald-700/50 flex-shrink-0 backdrop-blur-sm shadow-lg">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex gap-2 overflow-x-auto">
             <button
               onClick={() => setActiveTab('challenges')}
-              className={`px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-5 py-3.5 border-b-[3px] transition-all whitespace-nowrap font-semibold rounded-t-lg ${
                 activeTab === 'challenges'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-gray-400 hover:text-white'
+                  ? 'border-emerald-400 text-emerald-100 bg-emerald-800/50 shadow-lg'
+                  : 'border-transparent text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-800/30'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -120,10 +126,10 @@ export default function BusinessDashboard() {
             </button>
             <button
               onClick={() => setActiveTab('create')}
-              className={`px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-5 py-3.5 border-b-[3px] transition-all whitespace-nowrap font-semibold rounded-t-lg ${
                 activeTab === 'create'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-gray-400 hover:text-white'
+                  ? 'border-emerald-400 text-emerald-100 bg-emerald-800/50 shadow-lg'
+                  : 'border-transparent text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-800/30'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -133,10 +139,10 @@ export default function BusinessDashboard() {
             </button>
             <button
               onClick={() => setActiveTab('vouchers')}
-              className={`px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-5 py-3.5 border-b-[3px] transition-all whitespace-nowrap font-semibold rounded-t-lg ${
                 activeTab === 'vouchers'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-gray-400 hover:text-white'
+                  ? 'border-emerald-400 text-emerald-100 bg-emerald-800/50 shadow-lg'
+                  : 'border-transparent text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-800/30'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -146,10 +152,10 @@ export default function BusinessDashboard() {
             </button>
             <button
               onClick={() => setActiveTab('settings')}
-              className={`px-4 py-3 border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-5 py-3.5 border-b-[3px] transition-all whitespace-nowrap font-semibold rounded-t-lg ${
                 activeTab === 'settings'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-gray-400 hover:text-white'
+                  ? 'border-emerald-400 text-emerald-100 bg-emerald-800/50 shadow-lg'
+                  : 'border-transparent text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-800/30'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -162,13 +168,25 @@ export default function BusinessDashboard() {
       </div>
 
       {/* Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-emerald-950/50 to-emerald-900/50" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="max-w-7xl mx-auto px-6 py-8 min-h-full">
           {activeTab === 'challenges' && (
-            <BusinessChallenges businessId={business.id} />
+            <BusinessChallenges key={refreshKey} businessId={business.id} />
           )}
           {activeTab === 'create' && (
-            <CreateChallenge businessId={business.id} onChallengeCreated={() => setActiveTab('challenges')} />
+            <CreateChallenge 
+              businessId={business.id} 
+              onChallengeCreated={async () => {
+                // Wait for database transaction to complete
+                await new Promise(resolve => setTimeout(resolve, 1200))
+                // Force refresh by changing key (remounts BusinessChallenges)
+                setRefreshKey(prev => prev + 1)
+                // Switch to challenges tab
+                setTimeout(() => {
+                  setActiveTab('challenges')
+                }, 200)
+              }} 
+            />
           )}
           {activeTab === 'vouchers' && (
             <BusinessVouchers businessId={business.id} />

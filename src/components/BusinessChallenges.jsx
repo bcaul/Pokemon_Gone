@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { Target, Trash2, Edit, Eye } from 'lucide-react'
+import { Target, Trash2, Edit, Eye, X, Gift, Trophy, Users, TrendingUp, Store, MapPin, Calendar } from 'lucide-react'
 
 export default function BusinessChallenges({ businessId }) {
   const [challenges, setChallenges] = useState([])
@@ -8,24 +8,41 @@ export default function BusinessChallenges({ businessId }) {
   const [selectedChallenge, setSelectedChallenge] = useState(null)
 
   useEffect(() => {
-    fetchChallenges()
+    if (businessId) {
+      fetchChallenges()
+    }
   }, [businessId])
 
   const fetchChallenges = async () => {
     try {
+      setLoading(true)
       const { data, error } = await supabase
         .from('challenges')
         .select(`
           *,
-          creature_types:target_creature_type_id (name, rarity)
+          creature_types:target_creature_type_id (name, rarity),
+          businesses:business_id (
+            id,
+            business_name,
+            business_type,
+            address,
+            email,
+            phone
+          )
         `)
         .eq('business_id', businessId)
+        // Don't filter by active - show all challenges for the business so they can manage them
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Supabase error fetching challenges:', error)
+        throw error
+      }
+      
       setChallenges(data || [])
     } catch (error) {
       console.error('Error fetching challenges:', error)
+      setChallenges([])
     } finally {
       setLoading(false)
     }
@@ -62,14 +79,19 @@ export default function BusinessChallenges({ businessId }) {
 
   return (
     <div className="w-full">
-      <h2 className="text-2xl font-bold text-white mb-6">My Challenges</h2>
+      <div className="mb-8">
+        <h2 className="text-3xl font-black text-white mb-2 drop-shadow-lg">My Challenges</h2>
+        <p className="text-emerald-200/80 text-sm">Manage your business challenges and track completions</p>
+      </div>
       
       {challenges.length === 0 ? (
-        <div className="text-center text-gray-400 py-12">
-          No challenges created yet. Create your first challenge to get started!
+        <div className="text-center py-16 bg-emerald-900/30 rounded-2xl border-2 border-emerald-700/50">
+          <Target className="mx-auto text-emerald-400/50 mb-4" size={48} />
+          <p className="text-emerald-200 text-lg font-semibold mb-2">No challenges created yet</p>
+          <p className="text-emerald-300/70 text-sm">Create your first challenge to attract customers!</p>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-5">
           {challenges.map((challenge) => (
             <ChallengeCard
               key={challenge.id}
@@ -114,52 +136,189 @@ function ChallengeCard({ challenge, onDelete, onView }) {
     setVouchers(vouchersCount || 0)
   }
 
+  // Check if this is a business challenge
+  const isBusinessChallenge = challenge.business_id && challenge.businesses
+  
   return (
-    <div className="bg-surface rounded-lg p-6 border border-gray-700">
-      <div className="flex items-start justify-between">
+    <div className={`rounded-xl p-6 border-2 shadow-xl hover:shadow-2xl transition-all ${
+      isBusinessChallenge
+        ? 'bg-gradient-to-br from-yellow-500/20 via-yellow-400/15 to-yellow-500/20 border-yellow-400/60 hover:border-yellow-300/80'
+        : 'bg-gradient-to-br from-emerald-800/40 via-emerald-900/30 to-emerald-800/40 border-emerald-600/50 hover:border-emerald-500/70'
+    }`}>
+      <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-xl font-bold text-white">{challenge.name}</h3>
-            <span className={`px-2 py-1 rounded text-xs ${
-              challenge.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-            }`}>
-              {challenge.active ? 'Active' : 'Inactive'}
-            </span>
-          </div>
-          <p className="text-gray-300 mb-2">{challenge.description}</p>
-          <div className="flex flex-wrap gap-4 text-sm text-gray-400">
-            <span>Type: {challenge.challenge_type}</span>
-            <span>Target: {challenge.target_value}</span>
-            {challenge.creature_types && (
-              <span>Creature: {challenge.creature_types.name}</span>
-            )}
-            <span>Radius: {challenge.radius_meters}m</span>
-          </div>
-          {challenge.prize_description && (
-            <div className="mt-3 p-3 bg-primary/20 rounded border border-primary/30">
-              <p className="text-primary font-semibold text-sm mb-1">Prize:</p>
-              <p className="text-white text-sm">{challenge.prize_description}</p>
+          {/* Business Header - Prominent for Business Challenges */}
+          {isBusinessChallenge && challenge.businesses && (
+            <div className="mb-4 p-4 bg-gradient-to-r from-yellow-400/30 via-yellow-500/25 to-yellow-400/30 rounded-xl border-2 border-yellow-300/60 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-400/40 rounded-lg border border-yellow-300/50">
+                  <Store size={20} className="text-yellow-100" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-yellow-100 font-black text-lg drop-shadow-md">{challenge.businesses.business_name}</p>
+                  {challenge.businesses.business_type && (
+                    <p className="text-yellow-200/80 text-xs font-semibold capitalize mt-1">{challenge.businesses.business_type}</p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-          <div className="mt-3 flex gap-4 text-sm">
-            <span className="text-gray-400">Completions: <span className="text-white font-semibold">{completions}</span></span>
-            <span className="text-gray-400">Vouchers Issued: <span className="text-white font-semibold">{vouchers}</span></span>
+          
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className={`p-2 rounded-lg border ${
+              isBusinessChallenge
+                ? 'bg-yellow-400/30 border-yellow-300/50'
+                : 'bg-emerald-600/50 border-emerald-400/50'
+            }`}>
+              <Target size={20} className={isBusinessChallenge ? 'text-yellow-100' : 'text-emerald-100'} />
+            </div>
+            <h3 className="text-xl font-black text-white drop-shadow-md">{challenge.name}</h3>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+              challenge.active 
+                ? isBusinessChallenge
+                  ? 'bg-yellow-500/40 text-yellow-100 border-2 border-yellow-400/60'
+                  : 'bg-emerald-500/30 text-emerald-100 border-2 border-emerald-400/50'
+                : 'bg-gray-500/30 text-gray-300 border-2 border-gray-500/50'
+            }`}>
+              {challenge.active ? '✓ Active' : 'Inactive'}
+            </span>
+            {isBusinessChallenge && (
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-yellow-400/25 text-yellow-200 border-2 border-yellow-400/50">
+                🏢 BUSINESS CHALLENGE
+              </span>
+            )}
+          </div>
+          <p className={`mb-4 leading-relaxed ${
+            isBusinessChallenge ? 'text-yellow-100/90' : 'text-emerald-100/90'
+          }`}>{challenge.description}</p>
+          <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 ${
+            isBusinessChallenge ? 'bg-yellow-400/5 rounded-lg p-2' : ''
+          }`}>
+            <div className={`rounded-lg p-3 border ${
+              isBusinessChallenge
+                ? 'bg-yellow-400/15 border-yellow-400/30'
+                : 'bg-emerald-900/40 border-emerald-700/50'
+            }`}>
+              <p className={`text-xs mb-1 ${
+                isBusinessChallenge ? 'text-yellow-300/80' : 'text-emerald-300/80'
+              }`}>Type</p>
+              <p className="text-white font-semibold text-sm capitalize">{challenge.challenge_type}</p>
+            </div>
+            <div className={`rounded-lg p-3 border ${
+              isBusinessChallenge
+                ? 'bg-yellow-400/15 border-yellow-400/30'
+                : 'bg-emerald-900/40 border-emerald-700/50'
+            }`}>
+              <p className={`text-xs mb-1 ${
+                isBusinessChallenge ? 'text-yellow-300/80' : 'text-emerald-300/80'
+              }`}>Target</p>
+              <p className="text-white font-semibold text-sm">{challenge.target_value}</p>
+            </div>
+            {challenge.creature_types && (
+              <div className={`rounded-lg p-3 border ${
+                isBusinessChallenge
+                  ? 'bg-yellow-400/15 border-yellow-400/30'
+                  : 'bg-emerald-900/40 border-emerald-700/50'
+              }`}>
+                <p className={`text-xs mb-1 ${
+                  isBusinessChallenge ? 'text-yellow-300/80' : 'text-emerald-300/80'
+                }`}>Creature</p>
+                <p className="text-white font-semibold text-sm">{challenge.creature_types.name}</p>
+              </div>
+            )}
+            <div className={`rounded-lg p-3 border ${
+              isBusinessChallenge
+                ? 'bg-yellow-400/15 border-yellow-400/30'
+                : 'bg-emerald-900/40 border-emerald-700/50'
+            }`}>
+              <p className={`text-xs mb-1 ${
+                isBusinessChallenge ? 'text-yellow-300/80' : 'text-emerald-300/80'
+              }`}>Radius</p>
+              <p className="text-white font-semibold text-sm">{challenge.radius_meters}m</p>
+            </div>
+          </div>
+          
+          {/* Prize Section - Enhanced for Business Challenges */}
+          {challenge.prize_description && (
+            <div className={`mt-4 p-5 rounded-xl border-2 shadow-xl ${
+              isBusinessChallenge
+                ? 'bg-gradient-to-br from-yellow-400/30 via-yellow-500/25 to-yellow-400/30 border-yellow-300/70 shadow-yellow-500/40'
+                : 'bg-gradient-to-r from-yellow-400/20 via-yellow-500/15 to-yellow-400/20 border-yellow-400/40'
+            }`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`p-2 rounded-lg border ${
+                  isBusinessChallenge
+                    ? 'bg-yellow-400/50 border-yellow-300/60'
+                    : 'bg-yellow-400/30 border-yellow-300/50'
+                }`}>
+                  <Gift size={20} className="text-yellow-100" />
+                </div>
+                <p className="text-yellow-100 font-black text-base drop-shadow-md">🎁 PRIZE REWARD</p>
+              </div>
+              <p className={`font-bold mb-3 ${
+                isBusinessChallenge ? 'text-white text-lg' : 'text-white'
+              }`}>{challenge.prize_description}</p>
+              {isBusinessChallenge && challenge.businesses && challenge.businesses.address && (
+                <div className="mt-3 pt-3 border-t border-yellow-300/40 flex items-center gap-2">
+                  <MapPin size={16} className="text-yellow-200" />
+                  <p className="text-yellow-200/90 text-sm">{challenge.businesses.address}</p>
+                </div>
+              )}
+              {challenge.prize_expires_at && (
+                <div className="mt-3 pt-3 border-t border-yellow-300/40 flex items-center gap-2">
+                  <Calendar size={16} className="text-yellow-200" />
+                  <p className="text-yellow-200/90 text-sm">
+                    Valid until {new Date(challenge.prize_expires_at).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Reward Points */}
+          <div className={`mt-3 p-3 rounded-lg border ${
+            isBusinessChallenge
+              ? 'bg-yellow-400/10 border-yellow-400/30'
+              : 'bg-emerald-900/30 border-emerald-700/40'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Trophy size={16} className={isBusinessChallenge ? 'text-yellow-300' : 'text-emerald-300'} />
+              <p className={`text-sm font-semibold ${
+                isBusinessChallenge ? 'text-yellow-200' : 'text-emerald-200'
+              }`}>
+                Reward: <span className="text-white font-bold">{challenge.reward_points} points</span>
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-6">
+            <div className="flex items-center gap-2">
+              <Users size={16} className="text-emerald-300" />
+              <span className="text-emerald-200 text-sm">
+                <span className="font-bold text-white">{completions}</span> completions
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Gift size={16} className="text-yellow-300" />
+              <span className="text-emerald-200 text-sm">
+                <span className="font-bold text-white">{vouchers}</span> vouchers
+              </span>
+            </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2">
           <button
             onClick={() => onView(challenge)}
-            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+            className="p-3 bg-emerald-600/60 hover:bg-emerald-500/70 rounded-lg transition-colors border-2 border-emerald-400/50 shadow-lg"
             title="View Details"
           >
-            <Eye size={20} className="text-white" />
+            <Eye size={20} className="text-emerald-100" />
           </button>
           <button
             onClick={() => onDelete(challenge.id)}
-            className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
+            className="p-3 bg-red-500/30 hover:bg-red-500/40 rounded-lg transition-colors border-2 border-red-400/50 shadow-lg"
             title="Delete Challenge"
           >
-            <Trash2 size={20} className="text-red-400" />
+            <Trash2 size={20} className="text-red-300" />
           </button>
         </div>
       </div>
@@ -188,19 +347,42 @@ function ChallengeDetails({ challenge, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold text-white">Challenge Details</h2>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-gradient-to-br from-emerald-900/95 to-emerald-950/95 rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto border-2 border-emerald-600/50 shadow-2xl">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-3xl font-black text-white drop-shadow-lg">Challenge Details</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-emerald-800/50 rounded-lg transition-colors border-2 border-emerald-600/50"
           >
-            <X size={24} className="text-white" />
+            <X size={24} className="text-emerald-100" />
           </button>
         </div>
 
         <div className="space-y-4">
+          {/* Business Header in Details */}
+          {challenge.business_id && challenge.businesses && (
+            <div className="p-5 bg-gradient-to-r from-yellow-400/30 via-yellow-500/25 to-yellow-400/30 rounded-xl border-2 border-yellow-300/60 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-yellow-400/40 rounded-lg border border-yellow-300/50">
+                  <Store size={24} className="text-yellow-100" />
+                </div>
+                <div>
+                  <p className="text-yellow-100 font-black text-xl drop-shadow-md">{challenge.businesses.business_name}</p>
+                  {challenge.businesses.business_type && (
+                    <p className="text-yellow-200/80 text-sm font-semibold capitalize mt-1">{challenge.businesses.business_type}</p>
+                  )}
+                  {challenge.businesses.address && (
+                    <p className="text-yellow-200/70 text-xs mt-2 flex items-center gap-1">
+                      <MapPin size={12} />
+                      {challenge.businesses.address}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div>
             <h3 className="text-lg font-semibold text-white mb-2">{challenge.name}</h3>
             <p className="text-gray-300">{challenge.description}</p>
@@ -209,7 +391,7 @@ function ChallengeDetails({ challenge, onClose }) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-gray-400 text-sm">Type</p>
-              <p className="text-white">{challenge.challenge_type}</p>
+              <p className="text-white capitalize">{challenge.challenge_type}</p>
             </div>
             <div>
               <p className="text-gray-400 text-sm">Target</p>
@@ -221,14 +403,34 @@ function ChallengeDetails({ challenge, onClose }) {
             </div>
             <div>
               <p className="text-gray-400 text-sm">Reward Points</p>
-              <p className="text-white">{challenge.reward_points}</p>
+              <p className="text-white font-bold">{challenge.reward_points}</p>
             </div>
           </div>
 
+          {/* Enhanced Prize Section in Details */}
           {challenge.prize_description && (
-            <div className="p-4 bg-primary/20 rounded border border-primary/30">
-              <p className="text-primary font-semibold mb-1">Prize</p>
-              <p className="text-white">{challenge.prize_description}</p>
+            <div className="p-5 bg-gradient-to-br from-yellow-400/30 via-yellow-500/25 to-yellow-400/30 rounded-xl border-2 border-yellow-300/70 shadow-xl">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-yellow-400/50 rounded-lg border border-yellow-300/60">
+                  <Gift size={20} className="text-yellow-100" />
+                </div>
+                <p className="text-yellow-100 font-black text-lg">🎁 PRIZE REWARD</p>
+              </div>
+              <p className="text-white font-bold text-lg mb-3">{challenge.prize_description}</p>
+              {challenge.businesses && challenge.businesses.address && (
+                <div className="mt-3 pt-3 border-t border-yellow-300/40 flex items-center gap-2">
+                  <MapPin size={16} className="text-yellow-200" />
+                  <p className="text-yellow-200/90 text-sm">Redeem at: {challenge.businesses.address}</p>
+                </div>
+              )}
+              {challenge.prize_expires_at && (
+                <div className="mt-3 pt-3 border-t border-yellow-300/40 flex items-center gap-2">
+                  <Calendar size={16} className="text-yellow-200" />
+                  <p className="text-yellow-200/90 text-sm">
+                    Valid until {new Date(challenge.prize_expires_at).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

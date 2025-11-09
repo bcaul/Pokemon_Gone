@@ -8,7 +8,7 @@ import { getNearbySpawns } from '../lib/spawning.js'
  * @param {number} radiusMeters - Search radius in meters
  * @param {number} refreshInterval - Refresh interval in milliseconds
  */
-export function useCreatures(latitude, longitude, radiusMeters = 500, refreshInterval = 10000) {
+export function useCreatures(latitude, longitude, radiusMeters = 500, refreshInterval = 30000) {
   const [creatures, setCreatures] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)

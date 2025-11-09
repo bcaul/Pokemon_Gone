@@ -17,19 +17,58 @@ serve(async (req) => {
   }
 
   try {
-    const { voucher_id, user_email, voucher_code, prize_description, business_name, redemption_location, expires_at } = await req.json()
-
-    if (!voucher_id || !user_email || !voucher_code || !prize_description || !business_name) {
+    // Parse request body with better error handling
+    let requestBody
+    try {
+      requestBody = await req.json()
+    } catch (parseError) {
+      console.error('Error parsing request body:', parseError)
       return new Response(
-        JSON.stringify({ error: 'Missing required fields' }),
+        JSON.stringify({ error: 'Invalid request body', details: parseError.message }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    if (!RESEND_API_KEY) {
-      console.error('RESEND_API_KEY is not set')
+    const { voucher_id, user_email, voucher_code, prize_description, business_name, redemption_location, expires_at } = requestBody
+
+    // Validate required fields with detailed error messages
+    const missingFields = []
+    if (!voucher_id) missingFields.push('voucher_id')
+    if (!user_email) missingFields.push('user_email')
+    if (!voucher_code) missingFields.push('voucher_code')
+    if (!prize_description) missingFields.push('prize_description')
+    if (!business_name) missingFields.push('business_name')
+
+    if (missingFields.length > 0) {
+      console.error('Missing required fields:', missingFields)
       return new Response(
-        JSON.stringify({ error: 'Email service not configured' }),
+        JSON.stringify({ 
+          error: 'Missing required fields', 
+          missing_fields: missingFields,
+          received: {
+            voucher_id: !!voucher_id,
+            user_email: !!user_email,
+            voucher_code: !!voucher_code,
+            prize_description: !!prize_description,
+            business_name: !!business_name
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Check if Resend API key is configured
+    if (!RESEND_API_KEY || RESEND_API_KEY.trim() === '') {
+      console.error('RESEND_API_KEY is not set in environment variables')
+      // Return a more helpful error message that the client can display
+      return new Response(
+        JSON.stringify({ 
+          error: 'Email service not configured',
+          message: 'RESEND_API_KEY environment variable is not set. Please configure Resend API key in Supabase secrets.',
+          action_required: 'Set up Resend API key in Supabase dashboard > Settings > Edge Functions > Secrets',
+          setup_url: 'https://resend.com',
+          code: 'EMAIL_NOT_CONFIGURED'
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -186,31 +225,63 @@ serve(async (req) => {
     `
 
     // Send email via Resend
-    const { data, error } = await resend.emails.send({
-      from: 'WanderBeasts <noreply@wanderbeasts.com>', // Update this with your verified domain
-      to: [user_email],
-      subject: `🎉 You've earned a reward from ${business_name}!`,
-      html: emailHtml,
-    })
+    let emailData
+    try {
+      const { data, error } = await resend.emails.send({
+        from: 'WanderBeasts <onboarding@resend.dev>', // Use Resend's test domain by default
+        to: [user_email],
+        subject: `🎉 You've earned a reward from ${business_name}!`,
+        html: emailHtml,
+      })
 
-    if (error) {
-      console.error('Resend error:', error)
+      if (error) {
+        console.error('Resend API error:', JSON.stringify(error, null, 2))
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to send email via Resend',
+            details: error,
+            message: error.message || 'Unknown Resend API error',
+            suggestion: 'Check Resend API key, domain verification, and API limits'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      emailData = data
+      console.log('Email sent successfully via Resend:', emailData?.id)
+    } catch (resendError) {
+      console.error('Exception while calling Resend API:', resendError)
       return new Response(
-        JSON.stringify({ error: 'Failed to send email', details: error }),
+        JSON.stringify({ 
+          error: 'Exception while sending email',
+          details: resendError.message,
+          stack: resendError.stack
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    console.log('Email sent successfully:', data)
-
+    // Return success response
     return new Response(
-      JSON.stringify({ success: true, messageId: data?.id }),
+      JSON.stringify({ 
+        success: true, 
+        message: 'Email sent successfully',
+        messageId: emailData?.id,
+        voucher_id: voucher_id,
+        user_email: user_email
+      }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
-    console.error('Error in send-voucher-email function:', error)
+    console.error('Unexpected error in send-voucher-email function:', error)
+    console.error('Error stack:', error.stack)
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ 
+        error: 'Internal server error', 
+        message: error.message,
+        details: error.toString(),
+        type: error.constructor.name
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

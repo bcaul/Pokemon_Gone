@@ -217,7 +217,7 @@ export default function Profile() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-primary">Profile</h1>
+        <h1 className="text-4xl font-extrabold text-white text-shadow-lg">Profile</h1>
         <button
           onClick={handleLogout}
           className="flex items-center gap-2 bg-surface hover:bg-gray-700 px-4 py-2 rounded-lg transition-colors"
@@ -234,8 +234,8 @@ export default function Profile() {
             {profile?.username?.[0]?.toUpperCase() || 'U'}
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-white">{profile?.username || 'User'}</h2>
-            <p className="text-gray-400 text-sm">
+            <h2 className="text-2xl font-extrabold text-white text-shadow-md">{profile?.username || 'User'}</h2>
+            <p className="text-gray-300 text-sm font-medium text-shadow-sm">
               Member since {new Date(profile?.created_at).toLocaleDateString()}
             </p>
           </div>
@@ -248,10 +248,10 @@ export default function Profile() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Star className="text-white" size={24} />
-              <p className="text-white/90 text-sm font-medium">Challenge Points</p>
+              <p className="text-white/95 text-sm font-semibold text-shadow-sm uppercase tracking-wider">Challenge Points</p>
             </div>
-            <p className="text-5xl font-bold text-white">{profile?.points || 0}</p>
-            <p className="text-white/70 text-xs mt-1">Earned from completing challenges</p>
+            <p className="text-5xl font-extrabold text-white text-shadow-lg">{profile?.points || 0}</p>
+            <p className="text-white/80 text-xs mt-1 font-medium text-shadow-sm">Earned from completing challenges</p>
           </div>
           <Trophy className="text-white/20" size={48} />
         </div>
@@ -264,9 +264,9 @@ export default function Profile() {
             <div className="bg-surface rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Target className="text-primary" size={20} />
-                <p className="text-gray-400 text-sm">Total Catches</p>
+                <p className="text-gray-300 text-sm font-semibold text-shadow-sm">Total Catches</p>
               </div>
-              <p className="text-3xl font-bold text-white">{stats.totalCatches}</p>
+              <p className="text-3xl font-extrabold text-white text-shadow-md">{stats.totalCatches}</p>
             </div>
 
             <div className="bg-surface rounded-lg p-4">
@@ -296,7 +296,7 @@ export default function Profile() {
 
           {/* Rarity Breakdown */}
           <div className="bg-surface rounded-2xl p-6 mb-6">
-            <h3 className="text-xl font-bold text-white mb-4">Collection by Rarity</h3>
+            <h3 className="text-xl font-extrabold text-white mb-4 text-shadow-md">Collection by Rarity</h3>
             <div className="space-y-3">
               {Object.entries(stats.rarityCounts).map(([rarity, count]) => (
                 <div key={rarity} className="flex items-center justify-between">
