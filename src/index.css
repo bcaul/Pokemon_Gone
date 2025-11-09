@@ -47,7 +47,34 @@ body {
   height: 100vh;
 }
 
-/* Mapbox GL overrides */
+/* Mapbox GL overrides - Ensure map renders correctly */
+.mapboxgl-map {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+}
+
+.mapboxgl-canvas-container {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+}
+
+.mapboxgl-canvas {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
 .mapboxgl-popup-content {
   border-radius: 12px;
   padding: 0;
@@ -93,22 +120,26 @@ body {
 }
 
 .animate-bounce-in {
-  animation: bounce-in 0.5s ease-out;
+  animation: bounce-in 0.3s ease-out;
 }
 
+/* Catch celebration animation */
 @keyframes catch-celebration {
-  0%, 100% {
+  0% {
     transform: scale(1) rotate(0deg);
+    opacity: 1;
   }
-  25% {
-    transform: scale(1.2) rotate(-5deg);
+  50% {
+    transform: scale(1.5) rotate(180deg);
+    opacity: 0.8;
   }
-  75% {
-    transform: scale(1.2) rotate(5deg);
+  100% {
+    transform: scale(1) rotate(360deg);
+    opacity: 1;
   }
 }
 
-.animate-catch {
+.catch-celebration {
   animation: catch-celebration 0.6s ease-in-out;
 }
 
@@ -126,6 +157,42 @@ body {
   animation: pulse-challenge 2s ease-in-out infinite;
 }
 
+/* Gym marker pulse animation (for active gyms with 5+ players) - BRIGHT BLUE */
+@keyframes pulse-gym {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 0 0 rgba(243, 156, 18, 0.7);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5), 0 0 0 10px rgba(243, 156, 18, 0);
+  }
+}
+
+.pulse-gym {
+  animation: pulse-gym 2s ease-in-out infinite;
+}
+
+/* Gym marker - EXACTLY like creature markers to avoid positioning issues */
+/* Mapbox creates a wrapper div and applies CSS transforms to position it */
+/* Our element is a child - it should have NO positioning properties */
+/* This ensures markers stay stationary when zooming */
+.gym-marker {
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-sizing: border-box;
+  /* CRITICAL: NO position property - Mapbox wrapper handles all positioning */
+  /* CRITICAL: NO transform property - Mapbox applies transform to wrapper */
+  /* CRITICAL: NO margin or padding that could affect positioning */
+}
+
+/* RSVP badge marker - separate marker positioned by Mapbox */
+/* This avoids positioning issues since it's a separate marker, not positioned relative to gym marker */
+.gym-rsvp-badge-marker {
+  /* No specific styles needed - all styles are inline */
+  /* Mapbox handles positioning, so this marker stays stationary when zooming */
+}
+
 /* User location marker styles */
 .user-location-marker {
   cursor: pointer;
@@ -137,4 +204,3 @@ body {
   width: 100%;
   height: 100%;
 }
-

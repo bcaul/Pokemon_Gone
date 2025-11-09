@@ -34,8 +34,21 @@ npm install
 ### 2. Set Up Supabase
 
 1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to SQL Editor and run the migration file: `supabase/migrations/001_initial_schema.sql`
-3. Enable PostGIS extension in your Supabase project
+2. Enable PostGIS extension in your Supabase project (Database → Extensions → PostGIS)
+3. Go to SQL Editor and run migrations in order:
+   - `001_initial_schema.sql` - Core database schema
+   - `002_fix_profile_insert_policy.sql` - Profile policies
+   - `003_fix_spawns_insert_policy.sql` - Spawn policies
+   - `004_add_coords_to_spawns_query.sql` - Coordinate helpers
+   - `005_fix_missing_profiles.sql` - Profile fixes
+   - `006_replace_with_pokengine_creatures.sql` - Creature data
+   - `007_add_sprite_id_column.sql` - Sprite support
+   - `008_add_challenges.sql` - Challenge system
+   - `009_add_challenge_generation_functions.sql` - Challenge functions
+   - `010_add_points_to_profiles.sql` - Points system
+   - `011_add_gym_spawning.sql` - Gym system
+   - `012_add_sample_gyms.sql` - Sample gyms (edit coordinates first!)
+   - `013_update_gym_spawning_always_visible.sql` - Gym spawn updates
 4. Copy your Supabase URL and anon key
 
 ### 3. Get API Keys
@@ -105,12 +118,28 @@ The app uses PostgreSQL with PostGIS for geospatial queries:
 - Cached queries for performance
 - Boosts spawn rates in parks
 
+### Gym System
+
+- Special locations where epic/legendary creatures spawn
+- RSVP system for coordinating meetups
+- Creatures visible at gyms but only catchable with 5+ players
+- Real-time player count tracking
+- RSVP badges on map markers
+
 ### AI Recommendations
 
 - Google Gemini integration
 - Location-based hunting tips
 - Context-aware suggestions
 - 30-minute cache per location
+
+### Challenge System
+
+- Three challenge types: collect, walk, explore
+- Difficulty levels: easy, medium, hard, expert
+- Reward points system
+- Automatic challenge generation near parks
+- Progress tracking for walking challenges
 
 ## Deployment
 
@@ -155,6 +184,15 @@ The app is optimized for mobile devices:
 ## License
 
 MIT License - feel free to use this for your hackathon project!
+
+## Adding Gyms
+
+See [ADDING_GYMS.md](./ADDING_GYMS.md) for detailed instructions on adding gym locations to your game.
+
+Quick steps:
+1. Edit coordinates in `supabase/migrations/012_add_sample_gyms.sql`
+2. Run migrations 012 and 013 in Supabase SQL Editor
+3. Gyms will appear on the map with epic/legendary creatures
 
 ## Support
 

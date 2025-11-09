@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { getCreatureSprite } from '../lib/creatureSprites.js'
-import { X } from 'lucide-react'
+import { X, Users, Lock } from 'lucide-react'
 
 // Calculate distance between two points using Haversine formula
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -23,12 +23,55 @@ export default function CatchModal({ creature, userLocation, onClose }) {
   const [catching, setCatching] = useState(false)
   const [caught, setCaught] = useState(false)
   const [error, setError] = useState(null)
+  const [isGymCreature, setIsGymCreature] = useState(false)
+  const [playerCount, setPlayerCount] = useState(0)
+  const [loadingPlayerCount, setLoadingPlayerCount] = useState(false)
 
   if (!creature || !creature.creature_types) {
     return null
   }
 
   const creatureType = creature.creature_types
+
+  // Check if this is a gym creature and get player count
+  useEffect(() => {
+    const checkGymStatus = async () => {
+      if (!creature.id) return
+      
+      try {
+        setLoadingPlayerCount(true)
+        const { data: spawn, error: spawnError } = await supabase
+          .from('spawns')
+          .select('gym_id')
+          .eq('id', creature.id)
+          .single()
+
+        if (!spawnError && spawn && spawn.gym_id) {
+          setIsGymCreature(true)
+          
+          // Get player count at gym
+          const { data: count, error: countError } = await supabase.rpc('count_players_at_gym', {
+            p_gym_id: spawn.gym_id,
+            radius_meters: 100
+          })
+
+          if (!countError) {
+            setPlayerCount(count || 0)
+          }
+        }
+      } catch (error) {
+        console.error('Error checking gym status:', error)
+      } finally {
+        setLoadingPlayerCount(false)
+      }
+    }
+
+    checkGymStatus()
+    
+    // Refresh player count every 10 seconds
+    const interval = setInterval(checkGymStatus, 10000)
+    return () => clearInterval(interval)
+  }, [creature.id])
   
   // Get coordinates - prioritize direct coordinates from Map component (already parsed)
   // The Map component should pass latitude/longitude directly when marker is clicked
@@ -157,7 +200,7 @@ export default function CatchModal({ creature, userLocation, onClose }) {
       // Check if spawn still exists and hasn't expired
       const { data: spawn, error: spawnError } = await supabase
         .from('spawns')
-        .select('*')
+        .select('*, gym_id')
         .eq('id', creature.id)
         .single()
 
@@ -167,6 +210,21 @@ export default function CatchModal({ creature, userLocation, onClose }) {
 
       if (new Date(spawn.expires_at) < new Date()) {
         throw new Error('This creature has expired!')
+      }
+
+      // If this is a gym creature, check if 5+ players are present
+      if (spawn.gym_id) {
+        const { data: playerCount, error: countError } = await supabase.rpc('count_players_at_gym', {
+          p_gym_id: spawn.gym_id,
+          radius_meters: 100
+        })
+
+        if (countError) {
+          console.error('Error checking player count at gym:', countError)
+          // Don't block catch if we can't check, but log the error
+        } else if (playerCount < 5) {
+          throw new Error(`This epic/legendary creature requires 5+ players at the gym to catch! Currently ${playerCount || 0} players are present. Gather more trainers!`)
+        }
       }
 
       // Generate random CP level (1-100)
@@ -373,6 +431,46 @@ export default function CatchModal({ creature, userLocation, onClose }) {
               <p className="text-gray-400 capitalize">{creatureType.rarity} • {creatureType.type}</p>
             </div>
 
+            {/* Gym creature indicator */}
+            {isGymCreature && (
+              <div className={`mb-4 p-3 rounded-lg border ${
+                playerCount >= 5 
+                  ? 'bg-green-500/20 border-green-500/50' 
+                  : 'bg-yellow-500/20 border-yellow-500/50'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {playerCount >= 5 ? (
+                      <span className="text-green-400">✓</span>
+                    ) : (
+                      <Lock size={16} className="text-yellow-400" />
+                    )}
+                    <span className={`text-sm font-semibold ${
+                      playerCount >= 5 ? 'text-green-400' : 'text-yellow-400'
+                    }`}>
+                      Gym Creature
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Users size={16} className="text-gray-400" />
+                    <span className="text-gray-300">
+                      {loadingPlayerCount ? '...' : `${playerCount || 0}/5 players`}
+                    </span>
+                  </div>
+                </div>
+                {playerCount < 5 && (
+                  <p className="text-xs text-yellow-300 mt-2">
+                    Requires 5+ players at the gym to catch. {5 - (playerCount || 0)} more needed!
+                  </p>
+                )}
+                {playerCount >= 5 && (
+                  <p className="text-xs text-green-300 mt-2">
+                    ✓ Enough players present! You can catch this creature.
+                  </p>
+                )}
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm mb-4">
                 {error}
@@ -388,10 +486,10 @@ export default function CatchModal({ creature, userLocation, onClose }) {
               </button>
               <button
                 onClick={handleCatch}
-                disabled={catching}
+                disabled={catching || (isGymCreature && playerCount < 5)}
                 className="flex-1 bg-primary hover:bg-primary/90 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {catching ? 'Catching...' : 'Catch!'}
+                {catching ? 'Catching...' : isGymCreature && playerCount < 5 ? 'Need 5+ Players' : 'Catch!'}
               </button>
             </div>
           </>

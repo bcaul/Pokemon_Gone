@@ -270,6 +270,7 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
         `)
         .in('id', spawnIds)
         .gte('expires_at', new Date().toISOString())
+        .is('gym_id', null) // Exclude gym spawns - they're shown on gym markers
 
       if (!fetchError && spawnsWithCreatures) {
         
@@ -331,6 +332,7 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
           creature_types (id, name, rarity, type, image_url, region_locked, allowed_countries, base_spawn_rate, park_boost_multiplier)
         `)
         .gte('expires_at', new Date().toISOString())
+        .is('gym_id', null) // Exclude gym spawns - they're shown on gym markers
         .limit(100)
       
       if (directError) {

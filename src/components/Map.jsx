@@ -4,16 +4,18 @@ import { useLocation } from '../hooks/useLocation.js'
 import { useLocationTracking } from '../hooks/useLocationTracking.js'
 import { useCreatures } from '../hooks/useCreatures.js'
 import { useChallenges } from '../hooks/useChallenges.js'
-import { checkIfInParkCached, getNearbyParks } from '../lib/overpass.js'
+import { useGyms } from '../hooks/useGyms.js'
+import { useGymTracking } from '../hooks/useGymTracking.js'
+import { checkIfInParkCached } from '../lib/overpass.js'
 import { generateSpawns } from '../lib/spawning.js'
 import { generateChallengesNearParks, generateChallengesAtLocation } from '../lib/generateChallenges.js'
 import { getCountryCodeCached } from '../lib/geocoding.js'
 import { getCreatureSprite, getCreatureEmoji } from '../lib/creatureSprites.js'
-import { Target } from 'lucide-react'
-import CreatureMarker from './CreatureMarker.jsx'
+import { Target, MapPin } from 'lucide-react'
 import CatchModal from './CatchModal.jsx'
 import AIAssistant from './AIAssistant.jsx'
 import ChallengePanel from './ChallengePanel.jsx'
+import GymPanel from './GymPanel.jsx'
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || ''
 
@@ -30,43 +32,57 @@ export default function Map() {
     location?.latitude,
     location?.longitude
   )
+  const { gyms } = useGyms(
+    location?.latitude,
+    location?.longitude,
+    5000
+  )
   
   // Track location for walking challenges
   useLocationTracking(location)
   
+  // Track player at gyms for epic/legendary creature spawning
+  useGymTracking(location, gyms)
+  
   const [selectedCreature, setSelectedCreature] = useState(null)
   const [selectedChallenge, setSelectedChallenge] = useState(null)
+  const [selectedGym, setSelectedGym] = useState(null)
   const [inPark, setInPark] = useState(false)
   const [parkName, setParkName] = useState(null)
   const markersRef = useRef([])
   const challengeMarkersRef = useRef([])
+  const gymMarkersRef = useRef([])
   const lastSpawnGenRef = useRef(0)
   const [spawnGenerating, setSpawnGenerating] = useState(false)
   const [spawnDebugInfo, setSpawnDebugInfo] = useState(null)
   const [showChallengePanel, setShowChallengePanel] = useState(false)
+  const [showGymPanel, setShowGymPanel] = useState(false)
   const [generatingChallenges, setGeneratingChallenges] = useState(false)
   const lastChallengeGenRef = useRef(0)
 
-  // Initialize map
   useEffect(() => {
     if (map.current || !mapContainer.current) return
 
-    // Mapbox style configuration
-    // You can change this to your custom Mapbox style URL:
-    // Example: 'mapbox://styles/your-username/your-style-id'
-    // Or use a standard Mapbox style: 'mapbox://styles/mapbox/dark-v11'
     const mapboxStyle = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/taramulhall/cmhqieqsu004201s56pwv93xw'
     
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: mapboxStyle,
-      center: [0, 0],
-      zoom: 15,
-    })
+    try {
+      map.current = new mapboxgl.Map({
+        container: mapContainer.current,
+        style: mapboxStyle,
+        center: [0, 0],
+        zoom: 15,
+      })
 
-    map.current.on('load', () => {
-      setMapLoaded(true)
-    })
+      map.current.on('load', () => {
+        setMapLoaded(true)
+      })
+
+      map.current.on('error', (e) => {
+        console.error('Mapbox error:', e)
+      })
+    } catch (error) {
+      console.error('Error initializing map:', error)
+    }
 
     return () => {
       if (map.current) {
@@ -76,7 +92,6 @@ export default function Map() {
     }
   }, [])
 
-  // Create user location arrow marker (reusable function)
   const createUserLocationMarker = useCallback((heading) => {
     const el = document.createElement('div')
     el.className = 'user-location-marker'
@@ -88,15 +103,10 @@ export default function Map() {
     el.style.justifyContent = 'center'
     el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
     
-    // Create arrow SVG - blue arrow pointing up (North)
-    // Arrow will rotate based on device heading
     const arrowSVG = `
       <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="transform-origin: 16px 16px;">
-        <!-- Outer circle background with glow -->
         <circle cx="16" cy="16" r="15" fill="#4ECDC4" stroke="#FFFFFF" stroke-width="2.5" opacity="0.95"/>
-        <!-- Arrow shaft -->
         <rect x="14" y="8" width="4" height="12" fill="#FFFFFF" rx="1"/>
-        <!-- Arrow head pointing up -->
         <path d="M 16 4 L 10 12 L 16 10 L 22 12 Z" 
               fill="#FFFFFF" 
               stroke="#1A1A2E" 
@@ -107,10 +117,6 @@ export default function Map() {
     el.innerHTML = arrowSVG
     const svgElement = el.querySelector('svg')
     
-    // Rotate arrow based on heading (heading is in degrees, 0 = North)
-    // Mapbox uses 0 degrees as North, which matches compass heading
-    // Note: Heading is only available on mobile devices when moving
-    // Default to 0 (North) if heading is not available
     const headingDegrees = heading !== null && heading !== undefined && !isNaN(heading) ? heading : 0
     svgElement.style.transform = `rotate(${headingDegrees}deg)`
     svgElement.style.transition = 'transform 0.5s ease-out'
@@ -118,11 +124,9 @@ export default function Map() {
     return el
   }, [])
 
-  // Initialize and update user location marker
   useEffect(() => {
     if (!map.current || !mapLoaded || !location) return
 
-    // Create marker if it doesn't exist
     if (!map.current._userMarker) {
       const markerElement = createUserLocationMarker(location.heading || 0)
       map.current._userMarker = new mapboxgl.Marker({
@@ -132,11 +136,7 @@ export default function Map() {
         .setLngLat([location.longitude, location.latitude])
         .addTo(map.current)
     } else {
-      // Update existing marker position
       map.current._userMarker.setLngLat([location.longitude, location.latitude])
-
-      // Update marker rotation based on heading
-      // Default to 0 (North) if heading is not available
       const headingDegrees = location.heading !== null && location.heading !== undefined && !isNaN(location.heading) 
         ? location.heading 
         : 0
@@ -147,14 +147,12 @@ export default function Map() {
       }
     }
 
-    // Update map center (smoothly, but only if location changed significantly)
     const currentCenter = map.current.getCenter()
     const distance = Math.sqrt(
       Math.pow(currentCenter.lng - location.longitude, 2) + 
       Math.pow(currentCenter.lat - location.latitude, 2)
     )
     
-    // Only fly to new location if it's moved significantly (more than 50 meters)
     if (distance > 0.0005) {
       map.current.flyTo({
         center: [location.longitude, location.latitude],
@@ -163,15 +161,11 @@ export default function Map() {
       })
     }
 
-    // Check if in park
     checkParkStatus(location.latitude, location.longitude)
     
-    // Generate spawns immediately on location change (for testing)
-    // Then generate every 2 minutes (reduced from 5 for testing)
     const now = Date.now()
     const timeSinceLastSpawn = now - lastSpawnGenRef.current
     
-    // Generate immediately if it's been more than 30 seconds, or on first load
     if (timeSinceLastSpawn > 30 * 1000 || lastSpawnGenRef.current === 0) {
       generateSpawnsForLocation(location.latitude, location.longitude)
       lastSpawnGenRef.current = now
@@ -190,14 +184,12 @@ export default function Map() {
     return () => clearInterval(interval)
   }, [location])
 
-  // Check park status
   const checkParkStatus = async (lat, lon) => {
     const result = await checkIfInParkCached(lat, lon)
     setInPark(result.inPark)
     setParkName(result.parkName || null)
   }
 
-  // Generate spawns for location
   const generateSpawnsForLocation = async (lat, lon) => {
     if (!lat || !lon) {
       console.warn('Cannot generate spawns: invalid location', { lat, lon })
@@ -206,12 +198,8 @@ export default function Map() {
 
     setSpawnGenerating(true)
     try {
-      console.log('Checking park status and country code...')
       const parkStatus = await checkIfInParkCached(lat, lon)
       const countryCode = await getCountryCodeCached(lat, lon)
-      
-      console.log('Park status:', parkStatus, 'Country:', countryCode)
-      
       const spawnCount = await generateSpawns(lat, lon, 500, parkStatus.inPark, countryCode)
       
       setSpawnDebugInfo({
@@ -220,11 +208,6 @@ export default function Map() {
         countryCode,
         timestamp: new Date().toLocaleTimeString(),
       })
-      
-      
-      // Force refresh creatures list after generating spawns
-      // The useCreatures hook will pick this up on its next refresh (10 seconds)
-      // But we can also trigger it manually if needed
     } catch (error) {
       console.error('Error generating spawns:', error)
       setSpawnDebugInfo({
@@ -236,57 +219,34 @@ export default function Map() {
     }
   }
 
-  // Manual spawn generation (for testing)
   const handleManualSpawn = () => {
     if (location) {
       generateSpawnsForLocation(location.latitude, location.longitude)
     }
   }
 
-  // Update creature markers
   useEffect(() => {
-    if (!map.current || !mapLoaded) {
-      console.log('Map not ready:', { map: !!map.current, mapLoaded, creatures: creatures?.length })
-      return
-    }
+    if (!map.current || !mapLoaded) return
 
     if (!creatures || creatures.length === 0) {
-      console.log('No creatures to display')
-      // Clear existing markers
       markersRef.current.forEach(marker => marker.remove())
       markersRef.current = []
       return
     }
 
-
-    // Clear existing markers
     markersRef.current.forEach(marker => marker.remove())
     markersRef.current = []
 
-    // Add markers for each creature
-    let markersCreated = 0
-    let markersSkipped = 0
-
     creatures.forEach((spawn, index) => {
-      if (!spawn.creature_types) {
-        console.warn(`Spawn ${index} missing creature_types:`, spawn)
-        markersSkipped++
+      if (spawn.gym_id || !spawn.creature_types || !spawn.location) {
         return
       }
 
-      if (!spawn.location) {
-        console.warn(`Spawn ${index} missing location:`, spawn)
-        markersSkipped++
-        return
-      }
-
-      // Try to get coordinates from spawn object first (if query returned them directly)
       let lon, lat
       if (spawn.longitude !== undefined && spawn.latitude !== undefined) {
         lon = parseFloat(spawn.longitude)
         lat = parseFloat(spawn.latitude)
       } else {
-        // Fall back to parsing location string/WKB
         const coords = parseLocation(spawn.location)
         if (coords) {
           lon = coords.lon
@@ -294,21 +254,7 @@ export default function Map() {
         }
       }
       
-      if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-        console.warn(`Spawn ${index} invalid coordinates:`, { 
-          location: spawn.location, 
-          longitude: spawn.longitude,
-          latitude: spawn.latitude,
-          parsed: [lon, lat] 
-        })
-        markersSkipped++
-        return
-      }
-
-      // Verify coordinates are reasonable (not 0,0 or extreme values)
-      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-        console.warn(`Spawn ${index} coordinates out of range:`, { lat, lon })
-        markersSkipped++
+      if (!lat || !lon || isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
         return
       }
 
@@ -336,11 +282,8 @@ export default function Map() {
         })
 
         markersRef.current.push(marker)
-        markersCreated++
-        
       } catch (error) {
         console.error(`Error creating marker for spawn ${index}:`, error)
-        markersSkipped++
       }
     })
 
@@ -440,16 +383,13 @@ export default function Map() {
       }
     }
     
-    console.warn('Failed to parse location:', location, typeof location)
     return [null, null]
   }
 
-  // Create marker element
   const createMarkerElement = (creatureType) => {
     const el = document.createElement('div')
     el.className = 'creature-marker'
     
-    // Marker size - balanced for visibility and layout
     el.style.width = '40px'
     el.style.height = '40px'
     el.style.borderRadius = '50%'
@@ -460,23 +400,17 @@ export default function Map() {
     el.style.justifyContent = 'center'
     el.style.cursor = 'pointer'
     el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
-    // Don't set position - let Mapbox handle it
-    // Mapbox markers are positioned automatically based on setLngLat
     
-    // Add creature sprite or emoji fallback
     const spriteUrl = getCreatureSprite(creatureType)
     
     if (spriteUrl && !spriteUrl.includes('{SPRITE_ID}')) {
-      // Only use sprite URL if it's valid (no placeholder)
       const img = document.createElement('img')
       img.alt = creatureType.name
       img.style.width = '100%'
       img.style.height = '100%'
       img.style.objectFit = 'contain'
       img.style.borderRadius = '50%'
-      // Use crisp-edges for pixel art - prevents blur when scaling
       img.style.imageRendering = 'crisp-edges'
-      // Fallback for older browsers
       if (!('imageRendering' in img.style)) {
         img.style.imageRendering = '-webkit-optimize-contrast'
       }
@@ -484,7 +418,7 @@ export default function Map() {
       
       // Set error handler FIRST (before src)
       let errorHandled = false
-      img.onerror = (e) => {
+      img.onerror = () => {
         if (errorHandled) return // Prevent multiple error handlers
         errorHandled = true
         const emoji = getCreatureEmoji(creatureType.name)
@@ -503,8 +437,7 @@ export default function Map() {
     // Add subtle hover effect (visual only, no action)
     // CRITICAL: Keep border size constant (3px) to prevent position shifts
     // Changing border size changes element dimensions, causing Mapbox to reposition
-    el.addEventListener('mouseenter', (e) => {
-      e.stopPropagation()
+    el.addEventListener('mouseenter', () => {
       // Only change shadow - keep border at 3px (same size)
       el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.8), 0 0 0 4px rgba(255,255,255,0.6)'
       // Keep border at 3px - don't change size!
@@ -512,8 +445,7 @@ export default function Map() {
       el.style.outline = '2px solid rgba(255,255,255,0.5)'
       el.style.outlineOffset = '-2px'
     })
-    el.addEventListener('mouseleave', (e) => {
-      e.stopPropagation()
+    el.addEventListener('mouseleave', () => {
       el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
       el.style.outline = 'none'
       el.style.outlineOffset = '0'
@@ -539,28 +471,18 @@ export default function Map() {
 
   // Generate challenges near parks
   const generateChallengesForLocation = useCallback(async (lat, lon) => {
-    const now = Date.now()
-    // Throttle challenge generation (once per 5 minutes)
-    if (now - lastChallengeGenRef.current < 5 * 60 * 1000) {
-      console.log('Challenge generation throttled')
+    if (Date.now() - lastChallengeGenRef.current < 5 * 60 * 1000) {
       return
     }
 
     try {
       setGeneratingChallenges(true)
-      lastChallengeGenRef.current = now
+      lastChallengeGenRef.current = Date.now()
 
-      // First try to generate challenges near actual parks
       const challengesCreated = await generateChallengesNearParks(lat, lon, 5000)
-      
-      // If no challenges were created (no parks found), create some at the location
       if (challengesCreated === 0) {
-        console.log('No parks found, creating challenges at location')
         await generateChallengesAtLocation(lat, lon, 8)
       }
-
-      console.log('Challenge generation complete')
-      // Note: Challenges will refresh automatically via useChallenges hook
     } catch (error) {
       console.error('Error generating challenges:', error)
     } finally {
@@ -568,17 +490,11 @@ export default function Map() {
     }
   }, [])
 
-  // Auto-generate challenges when location is available and no challenges nearby
   useEffect(() => {
     if (!location || !mapLoaded || challengesLoading || generatingChallenges) return
 
-    // If no challenges nearby, generate some (only once on mount)
     if (challenges && challenges.length === 0) {
-      const now = Date.now()
-      // Only auto-generate once (check if we've generated before)
       if (lastChallengeGenRef.current === 0) {
-        console.log('No challenges nearby, auto-generating challenges...')
-        // Delay auto-generation slightly to avoid blocking
         const timer = setTimeout(() => {
           generateChallengesForLocation(location.latitude, location.longitude)
         }, 3000)
@@ -587,86 +503,366 @@ export default function Map() {
     }
   }, [location, challenges, mapLoaded, challengesLoading, generatingChallenges, generateChallengesForLocation])
 
-  // Create challenge marker element
-  const createChallengeMarker = (challenge) => {
+  // Challenge markers disabled - use Challenges button to access
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return
+    challengeMarkersRef.current.forEach(marker => {
+      try { marker.remove() } catch (e) {}
+    })
+    challengeMarkersRef.current = []
+  }, [])
+
+  // Create RSVP badge marker (separate marker to avoid positioning issues)
+  const createGymBadgeMarker = (rsvpCount) => {
+    const badgeEl = document.createElement('div')
+    badgeEl.className = 'gym-rsvp-badge-marker'
+    badgeEl.textContent = rsvpCount > 99 ? '99+' : rsvpCount.toString()
+    
+    badgeEl.style.minWidth = '20px'
+    badgeEl.style.height = '20px'
+    badgeEl.style.borderRadius = '10px'
+    badgeEl.style.backgroundColor = '#5B9BD5'
+    badgeEl.style.border = '2px solid #FFFFFF'
+    badgeEl.style.padding = '0 5px'
+    badgeEl.style.fontSize = '11px'
+    badgeEl.style.fontWeight = 'bold'
+    badgeEl.style.color = '#FFFFFF'
+    badgeEl.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.5)'
+    badgeEl.style.display = 'flex'
+    badgeEl.style.alignItems = 'center'
+    badgeEl.style.justifyContent = 'center'
+    badgeEl.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    badgeEl.style.lineHeight = '1'
+    badgeEl.style.pointerEvents = 'none'
+    badgeEl.style.whiteSpace = 'nowrap'
+    badgeEl.style.zIndex = '1001'
+    
+    return badgeEl
+  }
+  
+  // Calculate badge offset coordinates (15m northeast of gym)
+  const calculateBadgeOffset = (latitude, longitude, offsetMeters = 15) => {
+    const latOffset = offsetMeters / 111000
+    const lonOffset = offsetMeters / (111000 * Math.cos(latitude * Math.PI / 180))
+    return [longitude + lonOffset, latitude + latOffset]
+  }
+
+  // Create gym marker element
+  const createGymMarker = async (gym) => {
     const el = document.createElement('div')
-    el.className = 'challenge-marker'
-    el.style.width = '36px'
-    el.style.height = '36px'
+    el.className = 'gym-marker'
+    
+    el.style.width = '44px'
+    el.style.height = '44px'
     el.style.borderRadius = '50%'
-    el.style.backgroundColor = challenge.completed 
-      ? '#10B981' // Green for completed
-      : challenge.accepted 
-      ? '#6366F1' // Indigo for accepted
-      : '#F59E0B' // Amber for available
-    el.style.border = '3px solid #FFFFFF'
+    el.style.backgroundColor = '#4A5568'
+    el.style.border = '3px solid #5B9BD5'
     el.style.display = 'flex'
     el.style.alignItems = 'center'
     el.style.justifyContent = 'center'
     el.style.cursor = 'pointer'
     el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
     
-    // Challenge icon (Target/Trophy)
-    const icon = document.createElement('span')
-    icon.style.fontSize = '20px'
-    icon.innerHTML = challenge.completed ? '🏆' : '🎯'
-    el.appendChild(icon)
+    // Get creatures at this gym
+    const { getGymSpawns } = await import('../lib/gymSpawning.js')
+    const gymSpawns = await getGymSpawns(gym.id)
+    const firstCreature = gymSpawns && gymSpawns.length > 0 ? gymSpawns[0].creature_types : null
     
-    // Add pulsing animation for available challenges
-    if (!challenge.accepted && !challenge.completed) {
-      el.style.animation = 'pulse-challenge 2s ease-in-out infinite'
+    // Set background color
+    const bgColor = firstCreature ? getRarityColor(firstCreature.rarity) : '#4A5568'
+    el.style.backgroundColor = bgColor
+    
+    const rsvpCount = gym.rsvp_count || 0
+    
+    if (rsvpCount > 0) {
+      el.setAttribute('data-rsvp-count', rsvpCount.toString())
     }
     
-    el.title = `${challenge.name} - ${challenge.difficulty}`
+    if (rsvpCount >= 5) {
+      el.style.borderColor = '#4A90E2'
+      el.style.boxShadow = '0 2px 8px rgba(74, 144, 226, 0.5), 0 0 0 2px rgba(74, 144, 226, 0.2)'
+    }
+    
+    // Add creature sprite or emoji
+    if (firstCreature) {
+      const spriteUrl = getCreatureSprite(firstCreature)
+      if (spriteUrl && !spriteUrl.includes('{SPRITE_ID}')) {
+        const img = document.createElement('img')
+        img.alt = firstCreature.name
+        img.style.width = '100%'
+        img.style.height = '100%'
+        img.style.objectFit = 'contain'
+        img.style.borderRadius = '50%'
+        img.style.imageRendering = 'crisp-edges'
+        img.loading = 'eager'
+        
+        let errorHandled = false
+        img.onerror = () => {
+          if (errorHandled) return
+          errorHandled = true
+          const emoji = getCreatureEmoji(firstCreature.name)
+          el.innerHTML = `<span style="font-size: 20px; line-height: 1; display: block;">${emoji}</span>`
+        }
+        
+        el.appendChild(img)
+        img.src = spriteUrl
+      } else {
+        const emoji = getCreatureEmoji(firstCreature.name)
+        el.innerHTML = `<span style="font-size: 20px; line-height: 1; display: block;">${emoji}</span>`
+      }
+    } else {
+      // No creature yet, show simple gym icon
+      el.innerHTML = '<span style="font-size: 20px; line-height: 1; display: block;">🏋️</span>'
+    }
+    
+    // Add hover effect
+    el.addEventListener('mouseenter', () => {
+      el.style.boxShadow = '0 6px 24px rgba(0,0,0,0.8), 0 0 0 4px rgba(91, 155, 213, 0.6)'
+      el.style.outline = '2px solid rgba(91, 155, 213, 0.5)'
+      el.style.outlineOffset = '-2px'
+    })
+    el.addEventListener('mouseleave', () => {
+      const shadow = rsvpCount >= 5 
+        ? '0 2px 8px rgba(74, 144, 226, 0.5), 0 0 0 2px rgba(74, 144, 226, 0.2)'
+        : '0 2px 8px rgba(0,0,0,0.3)'
+      el.style.boxShadow = shadow
+      el.style.outline = 'none'
+      el.style.outlineOffset = '0'
+    })
+    
+    el.title = `${gym.name} - ${rsvpCount} RSVPs${firstCreature ? ` - ${firstCreature.name}` : ''}`
+    
     return el
   }
 
-  // Update challenge markers
+  const isUpdatingMarkersRef = useRef(false)
+  const gymMarkersMapRef = useRef({})
+  const gymBadgeMarkersMapRef = useRef({})
+
+  // Update gym markers
   useEffect(() => {
     if (!map.current || !mapLoaded) return
+    if (isUpdatingMarkersRef.current) return
 
-    // Clear existing challenge markers
-    challengeMarkersRef.current.forEach(marker => marker.remove())
-    challengeMarkersRef.current = []
+    isUpdatingMarkersRef.current = true
 
-    if (!challenges || challenges.length === 0) {
+    // Create a stable set of gyms to process
+    if (!gyms || gyms.length === 0) {
+      // Clear all markers if no gyms (including badge markers)
+      Object.values(gymMarkersMapRef.current).forEach((marker) => {
+        try {
+          marker.remove()
+        } catch (e) {
+          // Ignore errors
+        }
+      })
+      Object.values(gymBadgeMarkersMapRef.current).forEach((badgeMarker) => {
+        try {
+          badgeMarker.remove()
+        } catch (e) {
+          // Ignore errors
+        }
+      })
+      gymMarkersMapRef.current = {}
+      gymBadgeMarkersMapRef.current = {}
+      gymMarkersRef.current = []
+      isUpdatingMarkersRef.current = false
       return
     }
 
-    console.log(`Creating markers for ${challenges.length} challenges`)
-
-    challenges.forEach((challenge) => {
-      if (!challenge.latitude || !challenge.longitude) {
-        console.warn('Challenge missing coordinates:', challenge.id)
-        return
+    // STRICT deduplication: Deduplicate by ID AND by location (same coordinates = same gym)
+    const gymIdsProcessed = {}
+    const locationKeyMap = {} // Track by location to prevent duplicates at same coordinates
+    const uniqueGyms = []
+    
+    for (const gym of gyms) {
+      // Skip if missing required data
+      if (!gym || !gym.id) {
+        continue
       }
-
-      try {
-        const challengeMarker = createChallengeMarker(challenge)
-        const marker = new mapboxgl.Marker({
-          element: challengeMarker,
-          anchor: 'center',
-        })
-          .setLngLat([challenge.longitude, challenge.latitude])
-          .addTo(map.current)
-
-        challengeMarker.addEventListener('click', (e) => {
-          e.stopPropagation()
-          setSelectedChallenge(challenge)
-          setShowChallengePanel(true)
-        })
-
-        challengeMarkersRef.current.push(marker)
-      } catch (error) {
-        console.error('Error creating challenge marker:', error)
+      
+      // Validate coordinates
+      const lat = parseFloat(gym.latitude)
+      const lon = parseFloat(gym.longitude)
+      if (!gym.latitude || !gym.longitude || isNaN(lat) || isNaN(lon) || !isFinite(lat) || !isFinite(lon)) {
+        continue
       }
-    })
-
-    return () => {
-      challengeMarkersRef.current.forEach(marker => marker.remove())
-      challengeMarkersRef.current = []
+      
+      // Create location key for deduplication (round to 6 decimal places = ~10cm precision)
+      const locationKey = `${lat.toFixed(6)},${lon.toFixed(6)}`
+      
+      // Skip if we've already seen this gym ID OR this exact location
+      if (gymIdsProcessed[gym.id] || locationKeyMap[locationKey]) {
+        continue
+      }
+      
+      // Mark as processed
+      gymIdsProcessed[gym.id] = true
+      locationKeyMap[locationKey] = true
+      uniqueGyms.push({
+        ...gym,
+        latitude: lat,
+        longitude: lon
+      })
     }
-  }, [challenges, mapLoaded])
+
+
+    // Process markers: Update existing, add new, remove old
+    const processMarkers = async () => {
+      try {
+        const currentGymIds = new Set(uniqueGyms.map(g => g.id))
+        const markersToRemove = []
+
+        // Remove markers for gyms that no longer exist
+        Object.keys(gymMarkersMapRef.current).forEach((gymId) => {
+          if (!currentGymIds.has(gymId)) {
+            const marker = gymMarkersMapRef.current[gymId]
+            try {
+              marker.remove()
+              markersToRemove.push(gymId)
+            } catch (e) {}
+            
+            const badgeMarker = gymBadgeMarkersMapRef.current[gymId]
+            if (badgeMarker) {
+              try {
+                badgeMarker.remove()
+              } catch (e) {}
+              delete gymBadgeMarkersMapRef.current[gymId]
+            }
+          }
+        })
+
+        markersToRemove.forEach(id => {
+          delete gymMarkersMapRef.current[id]
+          const index = gymMarkersRef.current.findIndex(m => m._gymId === id)
+          if (index >= 0) {
+            gymMarkersRef.current.splice(index, 1)
+          }
+        })
+
+        // Create/update markers for each unique gym
+        for (const gym of uniqueGyms) {
+          const rsvpCount = gym.rsvp_count || 0
+          
+          if (gymMarkersMapRef.current[gym.id]) {
+            const existingMarker = gymMarkersMapRef.current[gym.id]
+            const markerElement = existingMarker.getElement()
+            
+            if (rsvpCount >= 5) {
+              markerElement.style.borderColor = '#4A90E2'
+              markerElement.style.boxShadow = '0 2px 8px rgba(74, 144, 226, 0.5), 0 0 0 2px rgba(74, 144, 226, 0.2)'
+            } else {
+              markerElement.style.borderColor = '#5B9BD5'
+              markerElement.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+            }
+            
+            markerElement.title = `${gym.name} - ${rsvpCount} RSVPs`
+            
+            // Update badge marker
+            if (rsvpCount > 0) {
+              const existingBadgeMarker = gymBadgeMarkersMapRef.current[gym.id]
+              
+              if (existingBadgeMarker) {
+                const badgeElement = existingBadgeMarker.getElement()
+                badgeElement.textContent = rsvpCount > 99 ? '99+' : rsvpCount.toString()
+              } else {
+                const badgeEl = createGymBadgeMarker(rsvpCount)
+                const [badgeLon, badgeLat] = calculateBadgeOffset(gym.latitude, gym.longitude)
+                
+                const badgeMarker = new mapboxgl.Marker({
+                  element: badgeEl,
+                  anchor: 'center',
+                  draggable: false
+                })
+                  .setLngLat([badgeLon, badgeLat])
+                  .addTo(map.current)
+                
+                gymBadgeMarkersMapRef.current[gym.id] = badgeMarker
+              }
+            } else {
+              const existingBadgeMarker = gymBadgeMarkersMapRef.current[gym.id]
+              if (existingBadgeMarker) {
+                try {
+                  existingBadgeMarker.remove()
+                } catch (e) {}
+                delete gymBadgeMarkersMapRef.current[gym.id]
+              }
+            }
+            
+            continue
+          }
+
+          try {
+            const gymMarkerEl = await createGymMarker(gym)
+            gymMarkerEl.dataset.gymId = gym.id
+            
+            const marker = new mapboxgl.Marker({
+              element: gymMarkerEl,
+              anchor: 'center',
+              draggable: false
+            })
+              .setLngLat([gym.longitude, gym.latitude])
+              .addTo(map.current)
+            
+            marker._gymId = gym.id
+
+            gymMarkerEl.addEventListener('click', (e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              setSelectedGym(gym)
+              setShowGymPanel(true)
+            })
+
+            gymMarkersMapRef.current[gym.id] = marker
+            gymMarkersRef.current.push(marker)
+            
+            // Create badge marker if RSVP count > 0
+            const rsvpCount = gym.rsvp_count || 0
+            if (rsvpCount > 0) {
+              const badgeEl = createGymBadgeMarker(rsvpCount)
+              const [badgeLon, badgeLat] = calculateBadgeOffset(gym.latitude, gym.longitude)
+              
+              const badgeMarker = new mapboxgl.Marker({
+                element: badgeEl,
+                anchor: 'center',
+                draggable: false
+              })
+                .setLngLat([badgeLon, badgeLat])
+                .addTo(map.current)
+              
+              gymBadgeMarkersMapRef.current[gym.id] = badgeMarker
+            }
+          } catch (error) {
+            console.error('Error creating gym marker:', error, gym.name)
+          }
+        }
+      } finally {
+        isUpdatingMarkersRef.current = false
+      }
+    }
+
+    processMarkers()
+  }, [gyms, mapLoaded])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      const markersMap = gymMarkersMapRef.current
+      const badgeMarkersMap = gymBadgeMarkersMapRef.current
+      
+      Object.values(markersMap).forEach(marker => {
+        try { marker.remove() } catch (e) {}
+      })
+      
+      Object.values(badgeMarkersMap).forEach(badgeMarker => {
+        try { badgeMarker.remove() } catch (e) {}
+      })
+      
+      gymMarkersMapRef.current = {}
+      gymBadgeMarkersMapRef.current = {}
+      gymMarkersRef.current = []
+    }
+  }, [])
 
   const handleCloseModal = useCallback(() => {
     setSelectedCreature(null)
@@ -695,8 +891,18 @@ export default function Map() {
   }
 
   return (
-    <div className="relative w-full h-full" style={{ position: 'relative', zIndex: 1 }}>
-      <div ref={mapContainer} className="w-full h-full" style={{ position: 'relative', zIndex: 1 }} />
+    <div className="relative w-full h-full" style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+      <div 
+        ref={mapContainer} 
+        className="w-full h-full" 
+        style={{ 
+          position: 'relative', 
+          zIndex: 1, 
+          width: '100%', 
+          height: '100%',
+          minHeight: '100%'
+        }} 
+      />
 
       {/* Park boost indicator */}
       {inPark && (
@@ -728,7 +934,7 @@ export default function Map() {
 
       {/* Debug info and manual spawn button (for testing) */}
       {location && (
-        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-10 max-w-xs" style={{ zIndex: 10 }}>
+        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-50 max-w-xs" style={{ zIndex: 1050 }}>
           <div className="text-xs mb-2 space-y-1">
             <div className="font-bold">Creatures nearby: {creatures?.length || 0}</div>
             <div className="text-gray-400">
@@ -766,6 +972,7 @@ export default function Map() {
             onClick={handleManualSpawn}
             disabled={spawnGenerating}
             className="w-full bg-primary hover:bg-primary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50 mb-2"
+            style={{ zIndex: 1050 }}
           >
             {spawnGenerating ? 'Generating...' : 'Generate Spawns'}
           </button>
@@ -773,6 +980,7 @@ export default function Map() {
             onClick={() => location && generateChallengesForLocation(location.latitude, location.longitude)}
             disabled={generatingChallenges}
             className="w-full bg-secondary hover:bg-secondary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50"
+            style={{ zIndex: 1050 }}
           >
             {generatingChallenges ? 'Generating Challenges...' : 'Generate Challenges'}
           </button>
@@ -781,7 +989,8 @@ export default function Map() {
 
       {/* Challenges Button - Left side of map */}
       <button
-        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
+        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
+        style={{ zIndex: 1050 }}
         onClick={() => setShowChallengePanel(true)}
         title="View Challenges"
         aria-label="View nearby challenges"
@@ -790,6 +999,22 @@ export default function Map() {
         {challenges && challenges.length > 0 && (
           <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
             {challenges.filter(c => !c.completed).length}
+          </span>
+        )}
+      </button>
+
+      {/* Gyms Button - Left side of map */}
+      <button
+        className="absolute bottom-48 left-4 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
+        style={{ zIndex: 1050 }}
+        onClick={() => setShowGymPanel(true)}
+        title="View Gyms"
+        aria-label="View nearby gyms"
+      >
+        <MapPin size={20} />
+        {gyms && gyms.length > 0 && (
+          <span className="bg-yellow-500 text-white text-xs rounded-full px-2 py-0.5">
+            {gyms.length}
           </span>
         )}
       </button>
@@ -824,9 +1049,21 @@ export default function Map() {
             setSelectedChallenge(null)
           }}
           onChallengeAccept={(challenge) => {
-            console.log('Challenge accepted:', challenge)
             setSelectedChallenge(null)
             // Refresh challenges - the useChallenges hook will refetch automatically
+          }}
+        />
+      )}
+
+      {/* Gym Panel */}
+      {showGymPanel && location && (
+        <GymPanel
+          latitude={location.latitude}
+          longitude={location.longitude}
+          selectedGym={selectedGym}
+          onClose={() => {
+            setShowGymPanel(false)
+            setSelectedGym(null)
           }}
         />
       )}
