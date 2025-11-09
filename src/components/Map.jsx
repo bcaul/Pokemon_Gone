@@ -23,6 +23,7 @@ export default function Map() {
   const mapContainer = useRef(null)
   const map = useRef(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapError, setMapError] = useState(null)
   const { location, error: locationError } = useLocation()
   const { creatures, loading: creaturesLoading } = useCreatures(
     location?.latitude,
@@ -59,11 +60,25 @@ export default function Map() {
   const [showGymPanel, setShowGymPanel] = useState(false)
   const [generatingChallenges, setGeneratingChallenges] = useState(false)
   const lastChallengeGenRef = useRef(0)
+  const mapLoadTimeoutRef = useRef(null)
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return
 
     const mapboxStyle = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/taramulhall/cmhqieqsu004201s56pwv93xw'
+    
+    // Clear any previous error
+    setMapError(null)
+    
+    // Set a timeout to detect if map fails to load
+    // This will only fire if the 'load' event hasn't fired (which clears the timeout)
+    mapLoadTimeoutRef.current = setTimeout(() => {
+      if (map.current) {
+        setMapError('Map failed to load within 10 seconds. Please check your Mapbox token and network connection.')
+        console.error('Map load timeout - map did not load within 10 seconds')
+        setMapLoaded(false)
+      }
+    }, 10000) // 10 second timeout
     
     try {
       map.current = new mapboxgl.Map({
@@ -74,17 +89,49 @@ export default function Map() {
       })
 
       map.current.on('load', () => {
+        if (mapLoadTimeoutRef.current) {
+          clearTimeout(mapLoadTimeoutRef.current)
+          mapLoadTimeoutRef.current = null
+        }
         setMapLoaded(true)
+        setMapError(null)
       })
 
       map.current.on('error', (e) => {
         console.error('Mapbox error:', e)
+        if (mapLoadTimeoutRef.current) {
+          clearTimeout(mapLoadTimeoutRef.current)
+          mapLoadTimeoutRef.current = null
+        }
+        
+        // Determine error message based on error type
+        let errorMessage = 'Failed to load map. '
+        if (e.error && e.error.message) {
+          errorMessage += e.error.message
+        } else if (!mapboxgl.accessToken) {
+          errorMessage += 'Mapbox token is missing.'
+        } else {
+          errorMessage += 'Please check your Mapbox token and network connection.'
+        }
+        
+        setMapError(errorMessage)
+        setMapLoaded(false)
       })
     } catch (error) {
       console.error('Error initializing map:', error)
+      if (mapLoadTimeoutRef.current) {
+        clearTimeout(mapLoadTimeoutRef.current)
+        mapLoadTimeoutRef.current = null
+      }
+      setMapError(`Failed to initialize map: ${error.message || 'Unknown error'}`)
+      setMapLoaded(false)
     }
 
     return () => {
+      if (mapLoadTimeoutRef.current) {
+        clearTimeout(mapLoadTimeoutRef.current)
+        mapLoadTimeoutRef.current = null
+      }
       if (map.current) {
         map.current.remove()
         map.current = null
@@ -122,6 +169,114 @@ export default function Map() {
     svgElement.style.transition = 'transform 0.5s ease-out'
     
     return el
+  }, [])
+
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3 // Earth's radius in meters
+    const φ1 = (lat1 * Math.PI) / 180
+    const φ2 = (lat2 * Math.PI) / 180
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c // Distance in meters
+  }
+
+  // Parse PostGIS geography point
+  const parseLocation = useCallback((location) => {
+    // Parse WKB hex string to coordinates (same as in spawning.js)
+    const parseWKBHex = (hex) => {
+      try {
+        if (!hex || typeof hex !== 'string' || hex.length < 42) {
+          return null
+        }
+        
+        // WKB Extended format with SRID
+        // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
+        const xHex = hex.substring(18, 34) // Longitude (8 bytes)
+        const yHex = hex.substring(34, 50) // Latitude (8 bytes)
+        
+        // Convert hex to Float64 (little endian)
+        const parseDouble = (hexStr) => {
+          const buffer = new ArrayBuffer(8)
+          const view = new DataView(buffer)
+          for (let i = 0; i < 8; i++) {
+            view.setUint8(i, parseInt(hexStr.substr(i * 2, 2), 16))
+          }
+          return view.getFloat64(0, true)
+        }
+        
+        const lon = parseDouble(xHex)
+        const lat = parseDouble(yHex)
+        
+        if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
+          return null
+        }
+        
+        return [lon, lat]
+      } catch (error) {
+        console.error('Error parsing WKB hex:', error)
+        return null
+      }
+    }
+
+    // Handle WKB hex format (starts with "0101")
+    if (typeof location === 'string' && location.startsWith('0101')) {
+      const coords = parseWKBHex(location)
+      if (coords) return coords
+    }
+    
+    // Handle WKT string format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
+    if (typeof location === 'string') {
+      // Try to match POINT format
+      const match = location.match(/POINT\(([^)]+)\)/)
+      if (match) {
+        const coords = match[1].trim().split(/\s+/)
+        if (coords.length >= 2) {
+          const lon = parseFloat(coords[0])
+          const lat = parseFloat(coords[1])
+          if (!isNaN(lon) && !isNaN(lat)) {
+            return [lon, lat]
+          }
+        }
+      }
+      // Try to parse as WKT without POINT wrapper
+      const wktMatch = location.match(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)/)
+      if (wktMatch) {
+        const lon = parseFloat(wktMatch[1])
+        const lat = parseFloat(wktMatch[2])
+        if (!isNaN(lon) && !isNaN(lat)) {
+          return [lon, lat]
+        }
+      }
+    }
+    
+    // Handle object format from Supabase
+    if (location && typeof location === 'object') {
+      // Check for coordinates array [lon, lat]
+      if (Array.isArray(location.coordinates) && location.coordinates.length >= 2) {
+        return [parseFloat(location.coordinates[0]), parseFloat(location.coordinates[1])]
+      }
+      // Check for x/y properties (lon/lat)
+      if (location.x !== undefined && location.y !== undefined) {
+        return [parseFloat(location.x), parseFloat(location.y)]
+      }
+      // Check for lon/lat properties
+      if (location.lon !== undefined && location.lat !== undefined) {
+        return [parseFloat(location.lon), parseFloat(location.lat)]
+      }
+      // Check for lng/lat properties (common in some APIs)
+      if (location.lng !== undefined && location.lat !== undefined) {
+        return [parseFloat(location.lng), parseFloat(location.lat)]
+      }
+    }
+    
+    return [null, null]
   }, [])
 
   useEffect(() => {
@@ -349,114 +504,6 @@ export default function Map() {
       }
     })
   }, [creatures, mapLoaded, caughtCreatureIds, location, parseLocation])
-
-  // Parse WKB hex string to coordinates (same as in spawning.js)
-  const parseWKBHex = (hex) => {
-    try {
-      if (!hex || typeof hex !== 'string' || hex.length < 42) {
-        return null
-      }
-      
-      // WKB Extended format with SRID
-      // Skip: 2 (endian) + 8 (type) + 8 (SRID) = 18 hex chars
-      const xHex = hex.substring(18, 34) // Longitude (8 bytes)
-      const yHex = hex.substring(34, 50) // Latitude (8 bytes)
-      
-      // Convert hex to Float64 (little endian)
-      const parseDouble = (hexStr) => {
-        const buffer = new ArrayBuffer(8)
-        const view = new DataView(buffer)
-        for (let i = 0; i < 8; i++) {
-          view.setUint8(i, parseInt(hexStr.substr(i * 2, 2), 16))
-        }
-        return view.getFloat64(0, true)
-      }
-      
-      const lon = parseDouble(xHex)
-      const lat = parseDouble(yHex)
-      
-      if (isNaN(lon) || isNaN(lat) || !isFinite(lon) || !isFinite(lat)) {
-        return null
-      }
-      
-      return [lon, lat]
-    } catch (error) {
-      console.error('Error parsing WKB hex:', error)
-      return null
-    }
-  }
-
-  // Calculate distance between two points using Haversine formula
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3 // Earth's radius in meters
-    const φ1 = (lat1 * Math.PI) / 180
-    const φ2 = (lat2 * Math.PI) / 180
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-    return R * c // Distance in meters
-  }
-
-  // Parse PostGIS geography point
-  const parseLocation = (location) => {
-    // Handle WKB hex format (starts with "0101")
-    if (typeof location === 'string' && location.startsWith('0101')) {
-      const coords = parseWKBHex(location)
-      if (coords) return coords
-    }
-    
-    // Handle WKT string format: "POINT(lon lat)" or "SRID=4326;POINT(lon lat)"
-    if (typeof location === 'string') {
-      // Try to match POINT format
-      const match = location.match(/POINT\(([^)]+)\)/)
-      if (match) {
-        const coords = match[1].trim().split(/\s+/)
-        if (coords.length >= 2) {
-          const lon = parseFloat(coords[0])
-          const lat = parseFloat(coords[1])
-          if (!isNaN(lon) && !isNaN(lat)) {
-            return [lon, lat]
-          }
-        }
-      }
-      // Try to parse as WKT without POINT wrapper
-      const wktMatch = location.match(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)/)
-      if (wktMatch) {
-        const lon = parseFloat(wktMatch[1])
-        const lat = parseFloat(wktMatch[2])
-        if (!isNaN(lon) && !isNaN(lat)) {
-          return [lon, lat]
-        }
-      }
-    }
-    
-    // Handle object format from Supabase
-    if (location && typeof location === 'object') {
-      // Check for coordinates array [lon, lat]
-      if (Array.isArray(location.coordinates) && location.coordinates.length >= 2) {
-        return [parseFloat(location.coordinates[0]), parseFloat(location.coordinates[1])]
-      }
-      // Check for x/y properties (lon/lat)
-      if (location.x !== undefined && location.y !== undefined) {
-        return [parseFloat(location.x), parseFloat(location.y)]
-      }
-      // Check for lon/lat properties
-      if (location.lon !== undefined && location.lat !== undefined) {
-        return [parseFloat(location.lon), parseFloat(location.lat)]
-      }
-      // Check for lng/lat properties (common in some APIs)
-      if (location.lng !== undefined && location.lat !== undefined) {
-        return [parseFloat(location.lng), parseFloat(location.lat)]
-      }
-    }
-    
-    return [null, null]
-  }
 
   const createMarkerElement = (creatureType) => {
     const el = document.createElement('div')
@@ -713,10 +760,30 @@ export default function Map() {
     // Get creatures at this gym
     const { getGymSpawns } = await import('../lib/gymSpawning.js')
     const gymSpawns = await getGymSpawns(gym.id)
-    const firstCreature = gymSpawns && gymSpawns.length > 0 ? gymSpawns[0].creature_types : null
+    
+    // Pick a consistent but varied creature based on gym ID to show variety across gyms
+    // Sort spawns by a hash of gym ID + creature ID to ensure different ordering per gym
+    let selectedCreature = null
+    if (gymSpawns && gymSpawns.length > 0) {
+      // Create a simple hash from gym ID for consistent selection
+      const gymIdHash = gym.id.split('').reduce((acc, char) => {
+        return ((acc << 5) - acc) + char.charCodeAt(0)
+      }, 0)
+      
+      // Sort spawns by creature name to ensure consistent ordering, then offset by gym hash
+      const sortedSpawns = [...gymSpawns].sort((a, b) => {
+        const nameA = a.creature_types?.name || ''
+        const nameB = b.creature_types?.name || ''
+        return nameA.localeCompare(nameB)
+      })
+      
+      // Use gym hash to pick different creature for each gym
+      const index = Math.abs(gymIdHash) % sortedSpawns.length
+      selectedCreature = sortedSpawns[index].creature_types
+    }
     
     // Set background color
-    const bgColor = firstCreature ? getRarityColor(firstCreature.rarity) : '#4A5568'
+    const bgColor = selectedCreature ? getRarityColor(selectedCreature.rarity) : '#4A5568'
     el.style.backgroundColor = bgColor
     
     const rsvpCount = gym.rsvp_count || 0
@@ -731,11 +798,11 @@ export default function Map() {
     }
     
     // Add creature sprite or emoji
-    if (firstCreature) {
-      const spriteUrl = getCreatureSprite(firstCreature)
+    if (selectedCreature) {
+      const spriteUrl = getCreatureSprite(selectedCreature)
       if (spriteUrl && !spriteUrl.includes('{SPRITE_ID}')) {
         const img = document.createElement('img')
-        img.alt = firstCreature.name
+        img.alt = selectedCreature.name
         img.style.width = '100%'
         img.style.height = '100%'
         img.style.objectFit = 'contain'
@@ -747,14 +814,14 @@ export default function Map() {
         img.onerror = () => {
           if (errorHandled) return
           errorHandled = true
-          const emoji = getCreatureEmoji(firstCreature.name)
+          const emoji = getCreatureEmoji(selectedCreature.name)
           el.innerHTML = `<span style="font-size: 20px; line-height: 1; display: block;">${emoji}</span>`
         }
         
         el.appendChild(img)
         img.src = spriteUrl
       } else {
-        const emoji = getCreatureEmoji(firstCreature.name)
+        const emoji = getCreatureEmoji(selectedCreature.name)
         el.innerHTML = `<span style="font-size: 20px; line-height: 1; display: block;">${emoji}</span>`
       }
     } else {
@@ -777,7 +844,11 @@ export default function Map() {
       el.style.outlineOffset = '0'
     })
     
-    el.title = `${gym.name} - ${rsvpCount} RSVPs${firstCreature ? ` - ${firstCreature.name}` : ''}`
+    // Show creature name in title
+    const creatureInfo = selectedCreature 
+      ? ` - ${selectedCreature.name}` 
+      : ''
+    el.title = `${gym.name} - ${rsvpCount} RSVPs${creatureInfo}`
     
     return el
   }
@@ -1070,8 +1141,54 @@ export default function Map() {
     )
   }
 
+  // Show error message if map failed to load
+  if (mapError) {
+    return (
+      <div className="flex items-center justify-center h-full bg-background">
+        <div className="text-center p-4 max-w-md">
+          <p className="text-red-400 mb-2 font-semibold">Map Loading Error</p>
+          <p className="text-gray-300 text-sm mb-4">{mapError}</p>
+          <div className="text-left text-gray-400 text-xs space-y-2 bg-surface/50 p-4 rounded-lg">
+            <p><strong>Possible solutions:</strong></p>
+            <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>Check that VITE_MAPBOX_TOKEN is set in your .env file</li>
+              <li>Verify your Mapbox token is valid and has proper permissions</li>
+              <li>Check your internet connection</li>
+              <li>Verify the Mapbox style URL is correct</li>
+              <li>Check the browser console for detailed error messages</li>
+            </ul>
+          </div>
+          <button
+            onClick={() => {
+              setMapError(null)
+              setMapLoaded(false)
+              if (map.current) {
+                map.current.remove()
+                map.current = null
+              }
+              window.location.reload()
+            }}
+            className="mt-4 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="relative w-full h-full" style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+      {/* Show loading indicator while map is loading */}
+      {!mapLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-text">Loading map...</p>
+          </div>
+        </div>
+      )}
+      
       <div 
         ref={mapContainer} 
         className="w-full h-full" 
@@ -1080,7 +1197,8 @@ export default function Map() {
           zIndex: 1, 
           width: '100%', 
           height: '100%',
-          minHeight: '100%'
+          minHeight: '100%',
+          backgroundColor: mapLoaded ? 'transparent' : '#5b695d'
         }} 
       />
 
@@ -1129,7 +1247,7 @@ export default function Map() {
 
       {/* Gyms Button - Left side of map */}
       <button
-        className="absolute bottom-48 left-4 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
+        className="absolute bottom-48 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
         onClick={() => setShowGymPanel(true)}
         title="View Gyms"
         aria-label="View nearby gyms"

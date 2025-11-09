@@ -237,14 +237,14 @@ export default function GymCard({ gym, userLatitude, userLongitude }) {
         )}
       </div>
 
-      {/* Active creatures indicator */}
+      {/* Active creature indicator */}
       {activeSpawns.length > 0 && (
         <div className="mb-3 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded">
           <div className="text-yellow-400 text-sm font-semibold mb-1">
             Epic/Legendary Creatures Active!
           </div>
           <div className="flex flex-wrap gap-2">
-            {activeSpawns.slice(0, 3).map((spawn) => (
+            {activeSpawns.slice(0, 1).map((spawn) => (
               <div
                 key={spawn.id}
                 className="px-2 py-1 rounded text-xs"
@@ -257,11 +257,6 @@ export default function GymCard({ gym, userLatitude, userLongitude }) {
                 {spawn.creature_types?.name} ({spawn.creature_types?.rarity})
               </div>
             ))}
-            {activeSpawns.length > 3 && (
-              <div className="px-2 py-1 text-xs text-gray-400">
-                +{activeSpawns.length - 3} more
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -335,14 +330,14 @@ export default function GymCard({ gym, userLatitude, userLongitude }) {
                 </div>
               )}
 
-              {/* Active Spawns */}
+              {/* Active Spawn */}
               {activeSpawns.length > 0 && (
                 <div>
                   <div className="text-gray-400 text-sm font-semibold mb-2">
-                    Active Creatures ({activeSpawns.length}):
+                    Active Creature:
                   </div>
                   <div className="space-y-1">
-                    {activeSpawns.map((spawn) => (
+                    {activeSpawns.slice(0, 1).map((spawn) => (
                       <div
                         key={spawn.id}
                         className="text-sm flex items-center gap-2"

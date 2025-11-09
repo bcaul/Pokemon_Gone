@@ -104,14 +104,15 @@ export default function Auth() {
         })
 
         if (authError) {
-          // Provide more specific error messages
-          if (authError.message.includes('Invalid login credentials')) {
+          // Provide more specific error messages for sign-in
+          if (authError.message.includes('Invalid login credentials') || authError.message.includes('invalid')) {
             throw new Error('Invalid email or password. Please check your credentials and try again.')
-          } else if (authError.message.includes('Email not confirmed')) {
+          } else if (authError.message.includes('Email not confirmed') || authError.message.includes('not confirmed')) {
             throw new Error('Please verify your email address. Check your inbox for the verification link.')
           } else if (authError.message.includes('User not found')) {
             throw new Error('No account found with this email. Please sign up first.')
           }
+          // Pass through the original error message for other cases
           throw authError
         }
 
@@ -129,16 +130,26 @@ export default function Auth() {
       // Provide more helpful error messages
       let errorMessage = err.message
       
-      if (err.message?.includes('duplicate key') || err.message?.includes('already registered')) {
-        errorMessage = 'An account with this email already exists. Try signing in instead.'
-      } else if (err.message?.includes('Database error')) {
-        errorMessage = 'Database error. Please check that the migration was run correctly. See TROUBLESHOOTING_SIGNUP_ERROR.md for help.'
-      } else if (err.message?.includes('username')) {
-        errorMessage = 'This username is already taken. Please choose a different one.'
-      } else if (err.message?.includes('password')) {
-        errorMessage = 'Password must be at least 6 characters long.'
-      } else if (err.message?.includes('email')) {
-        errorMessage = 'Please enter a valid email address.'
+      // Only apply password length validation for sign-up, not sign-in
+      if (isSignUp) {
+        if (err.message?.includes('duplicate key') || err.message?.includes('already registered')) {
+          errorMessage = 'An account with this email already exists. Try signing in instead.'
+        } else if (err.message?.includes('Database error')) {
+          errorMessage = 'Database error. Please check that the migration was run correctly. See TROUBLESHOOTING_SIGNUP_ERROR.md for help.'
+        } else if (err.message?.includes('username')) {
+          errorMessage = 'This username is already taken. Please choose a different one.'
+        } else if (err.message?.includes('password') && err.message?.includes('6')) {
+          errorMessage = 'Password must be at least 6 characters long.'
+        } else if (err.message?.includes('email')) {
+          errorMessage = 'Please enter a valid email address.'
+        }
+      } else {
+        // For sign-in, preserve the original error message (already handled above)
+        // Don't override with generic password length message
+        if (err.message && !err.message.includes('Invalid') && !err.message.includes('not confirmed') && !err.message.includes('not found')) {
+          // Keep original error message for sign-in
+          errorMessage = err.message
+        }
       }
       
       setError(errorMessage)
@@ -199,16 +210,21 @@ export default function Auth() {
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Email
+                Email {!isSignUp && <span className="text-xs text-gray-500">(use email, not username)</span>}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="your@email.com"
+                placeholder={isSignUp ? "your@email.com" : "bcaulfield68@gmail.com"}
                 required
               />
+              {!isSignUp && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Sign in with your email address, not your username
+                </p>
+              )}
             </div>
 
             <div>
@@ -222,7 +238,7 @@ export default function Auth() {
                 className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="••••••••"
                 required
-                minLength={6}
+                {...(isSignUp && { minLength: 6 })}
               />
             </div>
 
