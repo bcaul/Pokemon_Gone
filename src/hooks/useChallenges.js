@@ -14,17 +14,48 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
       setLoading(true)
       setError(null)
 
-      // Try RPC function first
-      const { data, error: rpcError } = await supabase.rpc('get_nearby_challenges', {
+      // Try RPC function first, but we still need to enrich with business data
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_nearby_challenges', {
         user_lat: latitude,
         user_lon: longitude,
         search_radius_meters: radiusMeters,
       })
 
-      if (!rpcError && data) {
-        setChallenges(data)
-        setLoading(false)
-        return
+      if (!rpcError && rpcData && rpcData.length > 0) {
+        // RPC function doesn't include business data, so we need to fetch it
+        // Get all challenge IDs that might have businesses
+        const challengeIds = rpcData.map(c => c.id)
+        
+        // Fetch full challenge data with business information
+        const { data: enrichedChallenges, error: enrichError } = await supabase
+          .from('challenges')
+          .select(`
+            id,
+            business_id,
+            prize_description,
+            businesses:business_id (business_name, business_type),
+            creature_types:target_creature_type_id (name, rarity)
+          `)
+          .in('id', challengeIds)
+
+        if (!enrichError && enrichedChallenges) {
+          // Merge business data into RPC results
+          const challengesWithBusiness = rpcData.map(challenge => {
+            const enriched = enrichedChallenges.find(e => e.id === challenge.id)
+            return {
+              ...challenge,
+              business_id: enriched?.business_id || null,
+              prize_description: enriched?.prize_description || null,
+              businesses: enriched?.businesses || null,
+              creature_types: enriched?.creature_types || null,
+            }
+          })
+          
+          setChallenges(challengesWithBusiness)
+          setLoading(false)
+          return
+        }
+        // If enrichment fails, fall through to fallback query
       }
 
       // Fallback: Get all active challenges and filter client-side
@@ -32,7 +63,8 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
         .from('challenges')
         .select(`
           *,
-          creature_types:target_creature_type_id (name)
+          creature_types:target_creature_type_id (name, rarity),
+          businesses (business_name, business_type)
         `)
         .eq('active', true)
         .is('expires_at', null)
@@ -104,6 +136,10 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
           if (distance > radiusMeters) return null
 
           const userChallenge = userChallenges.find(uc => uc.challenge_id === challenge.id)
+          
+          // Ensure business data is properly set
+          const isBusinessChallenge = challenge.business_id && challenge.businesses
+          
           return {
             ...challenge,
             longitude: coords.lon,
@@ -112,10 +148,25 @@ export function useChallenges(latitude, longitude, radiusMeters = 2000) {
             accepted: !!userChallenge,
             progress_value: userChallenge?.progress_value || 0,
             completed: userChallenge?.completed || false,
+            // Explicitly ensure business_id and businesses are set
+            business_id: challenge.business_id || null,
+            businesses: challenge.businesses || null,
+            prize_description: challenge.prize_description || null,
+            // Ensure creature_types is set
+            creature_types: challenge.creature_types || null,
           }
         })
         .filter(c => c !== null)
-        .sort((a, b) => a.distance_meters - b.distance_meters)
+        .sort((a, b) => {
+          // Sort business challenges first, then by distance
+          const aIsBusiness = a.business_id && a.businesses
+          const bIsBusiness = b.business_id && b.businesses
+          
+          if (aIsBusiness && !bIsBusiness) return -1
+          if (!aIsBusiness && bIsBusiness) return 1
+          
+          return a.distance_meters - b.distance_meters
+        })
 
       setChallenges(nearbyChallenges)
     } catch (err) {

@@ -116,7 +116,6 @@ export default function SearchBar() {
     } else if (result.type === 'gym') {
       // Navigate to map and focus on gym location
       navigate('/')
-      // TODO: Focus map on gym location
     } else if (result.type === 'challenge') {
       // Navigate to map and show challenge panel
       navigate('/')

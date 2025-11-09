@@ -19,11 +19,9 @@ export async function generateChallengesNearParks(latitude, longitude, radiusMet
     const parks = await getNearbyParks(latitude, longitude, radiusMeters)
     
     if (!parks || parks.length === 0) {
-      console.log('No parks found nearby')
       return 0
     }
 
-    console.log(`Found ${parks.length} parks nearby`)
 
     let challengesCreated = 0
     const { data: { user } } = await supabase.auth.getUser()
@@ -59,7 +57,6 @@ export async function generateChallengesNearParks(latitude, longitude, radiusMet
 
           if (!error && data) {
             challengesCreated++
-            console.log(`Created challenge at ${park.name}`)
           } else if (error) {
             console.error(`Error creating challenge at ${park.name}:`, error)
           }
@@ -103,7 +100,6 @@ export async function generateChallengesNearParks(latitude, longitude, radiusMet
       }
     }
 
-    console.log(`Created ${challengesCreated} challenges near parks`)
     return challengesCreated
   } catch (error) {
     console.error('Error generating challenges near parks:', error)
@@ -149,7 +145,6 @@ export async function generateChallengesAtLocation(latitude, longitude, count = 
 
         if (!error1 && challengeId) {
           created++
-          console.log('Created welcome challenge at player location')
         }
       }
     } catch (error) {

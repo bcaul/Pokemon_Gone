@@ -218,12 +218,10 @@ export default function Map() {
   // Update creature markers
   useEffect(() => {
     if (!map.current || !mapLoaded) {
-      console.log('Map not ready:', { map: !!map.current, mapLoaded, creatures: creatures?.length })
       return
     }
 
     if (!creatures || creatures.length === 0) {
-      console.log('No creatures to display')
       // Clear existing markers
       markersRef.current.forEach(marker => marker.remove())
       markersRef.current = []
@@ -286,7 +284,6 @@ export default function Map() {
       }
 
       if (!spawn.location) {
-        console.warn(`Spawn ${index} missing location:`, spawn)
         markersSkipped++
         return
       }
@@ -306,19 +303,12 @@ export default function Map() {
       }
       
       if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-        console.warn(`Spawn ${index} invalid coordinates:`, { 
-          location: spawn.location, 
-          longitude: spawn.longitude,
-          latitude: spawn.latitude,
-          parsed: [lon, lat] 
-        })
         markersSkipped++
         return
       }
 
       // Verify coordinates are reasonable (not 0,0 or extreme values)
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-        console.warn(`Spawn ${index} coordinates out of range:`, { lat, lon })
         markersSkipped++
         return
       }
@@ -572,7 +562,6 @@ export default function Map() {
     const now = Date.now()
     // Throttle challenge generation (once per 5 minutes)
     if (now - lastChallengeGenRef.current < 5 * 60 * 1000) {
-      console.log('Challenge generation throttled')
       return
     }
 
@@ -585,11 +574,9 @@ export default function Map() {
       
       // If no challenges were created (no parks found), create some at the location
       if (challengesCreated === 0) {
-        console.log('No parks found, creating challenges at location')
         await generateChallengesAtLocation(lat, lon, 8)
       }
 
-      console.log('Challenge generation complete')
       // Note: Challenges will refresh automatically via useChallenges hook
     } catch (error) {
       console.error('Error generating challenges:', error)
@@ -607,7 +594,6 @@ export default function Map() {
       const now = Date.now()
       // Only auto-generate once (check if we've generated before)
       if (lastChallengeGenRef.current === 0) {
-        console.log('No challenges nearby, auto-generating challenges...')
         // Delay auto-generation slightly to avoid blocking
         const timer = setTimeout(() => {
           generateChallengesForLocation(location.latitude, location.longitude)
@@ -663,7 +649,10 @@ export default function Map() {
       return
     }
 
-    challenges.forEach((challenge) => {
+    // Filter out completed challenges - they should only appear in Profile
+    const activeChallenges = challenges.filter(challenge => !challenge.completed)
+
+    activeChallenges.forEach((challenge) => {
       if (!challenge.latitude || !challenge.longitude) {
         console.warn('Challenge missing coordinates:', challenge.id)
         return
@@ -701,14 +690,28 @@ export default function Map() {
     if (!selectedChallenge || !challenges || challenges.length === 0) return
     
     const updatedChallenge = challenges.find(c => c.id === selectedChallenge.id)
-    if (updatedChallenge && (
-      updatedChallenge.progress_value !== selectedChallenge.progress_value || 
-      updatedChallenge.completed !== selectedChallenge.completed
-    )) {
-      console.log(`📊 Updating selected challenge progress: ${updatedChallenge.progress_value}/${updatedChallenge.target_value} (was ${selectedChallenge.progress_value}/${selectedChallenge.target_value})`)
-      setSelectedChallenge(updatedChallenge)
+    if (updatedChallenge) {
+      // If challenge was just completed, close the panel (it will move to Profile)
+      if (updatedChallenge.completed && !selectedChallenge.completed) {
+        setSelectedChallenge(null)
+        setShowChallengePanel(false)
+        return
+      }
+      
+      // Otherwise, update progress if it changed
+      if (
+        updatedChallenge.progress_value !== selectedChallenge.progress_value || 
+        updatedChallenge.completed !== selectedChallenge.completed
+      ) {
+        setSelectedChallenge(updatedChallenge)
+      }
+    } else if (selectedChallenge.completed) {
+      // Challenge is completed and no longer in the active challenges list
+      // Close the panel
+      setSelectedChallenge(null)
+      setShowChallengePanel(false)
     }
-  }, [challenges]) // Only depend on challenges array
+  }, [challenges, selectedChallenge]) // Depend on both challenges and selectedChallenge
 
   const handleCloseModal = useCallback(() => {
     setSelectedCreature(null)
@@ -723,23 +726,13 @@ export default function Map() {
 
   const handleChallengeUpdate = useCallback(() => {
     // Refresh challenges immediately after a catch to update progress
-    console.log('🔄 Refreshing challenges after catch...')
     if (refetchChallenges) {
       // Add a small delay to ensure database has updated
       setTimeout(async () => {
         await refetchChallenges()
-        console.log('✅ Challenges refreshed')
-        
-        // Update selected challenge if it exists to show new progress
-        if (selectedChallenge) {
-          // Find the updated challenge in the refreshed list
-          setTimeout(() => {
-            // This will be handled by the challenges update effect
-          }, 100)
-        }
       }, 500)
     }
-  }, [refetchChallenges, selectedChallenge])
+  }, [refetchChallenges])
 
   if (!mapboxgl.accessToken) {
     return (
@@ -806,7 +799,7 @@ export default function Map() {
         <Target size={20} />
         {challenges && challenges.length > 0 && (
           <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-            {challenges.filter(c => !c.completed).length}
+            {challenges ? challenges.filter(c => !c.completed).length : 0}
           </span>
         )}
       </button>
@@ -843,7 +836,6 @@ export default function Map() {
             setSelectedChallenge(null)
           }}
           onChallengeAccept={(challenge) => {
-            console.log('Challenge accepted:', challenge)
             setSelectedChallenge(null)
             // Refresh challenges - the useChallenges hook will refetch automatically
           }}

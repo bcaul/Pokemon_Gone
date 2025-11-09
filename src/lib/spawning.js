@@ -172,21 +172,14 @@ export async function generateSpawns(latitude, longitude, radiusMeters = 500, in
         .select()
 
       if (insertError) {
-        console.error('Error inserting spawns:', insertError)
-        console.error('Error details:', JSON.stringify(insertError, null, 2))
-        console.error('Error code:', insertError.code)
-        console.error('Error message:', insertError.message)
-        console.error('Error hint:', insertError.hint)
-        
         // Check if it's an RLS error
         if (insertError.message?.includes('row-level security') || insertError.code === '42501') {
           throw new Error('RLS Policy Error: Cannot insert spawns. Please run the fix SQL: supabase/migrations/003_fix_spawns_insert_policy.sql')
         }
         
+        console.error('Error inserting spawns:', insertError)
         throw insertError
       }
-    } else {
-      console.warn('No spawns generated. This might be due to low spawn chance or no creature types available.')
     }
 
     return spawns.length
@@ -207,9 +200,9 @@ function selectCreatureByRarity(creatureTypes, parkBoost = false) {
   // Adjust rarity weights for park boost (increase rare/epic/legendary chances)
   const weights = parkBoost
     ? {
-        common: 0.50,
+        common: 0.55,  // Slightly reduced from 0.50
         uncommon: 0.25,
-        rare: 0.15,
+        rare: 0.10,    // Reduced from 0.15 to decrease Ananoop spawns in parks
         epic: 0.07,
         legendary: 0.03,
       }
@@ -311,16 +304,11 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
         
         
         return parsedSpawns
-      } else if (fetchError) {
-        console.warn('Error fetching spawns with creature types:', fetchError)
       }
-    } else if (rpcError) {
-      console.log('RPC function not available or error:', rpcError.message)
     }
 
     // Fallback: Get all non-expired spawns and filter client-side
     // Use PostGIS functions to extract coordinates as numbers
-    console.log('Using fallback method to fetch spawns (RPC function may not be available)')
     const { data: allSpawns, error: queryError } = await supabase
       .rpc('get_spawns_with_coords')
       .gte('expires_at', new Date().toISOString())
@@ -328,7 +316,6 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
     
     // If RPC doesn't exist, fall back to regular query and parse WKB
     if (queryError && queryError.message?.includes('function') || !allSpawns) {
-      console.log('RPC function not available, using direct query with WKB parsing')
       const { data: rawSpawns, error: directError } = await supabase
         .from('spawns')
         .select(`
@@ -398,7 +385,6 @@ export async function getNearbySpawns(latitude, longitude, radiusMeters = 500) {
     // Parse location strings and calculate distance
     const nearbySpawns = allSpawns.filter(spawn => {
       if (!spawn.location) {
-        console.warn('Spawn missing location:', spawn.id)
         return false
       }
       
