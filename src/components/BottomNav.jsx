@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { MapPin, Grid3x3, Search, User } from 'lucide-react'
+import { MapPin, Grid3x3, Search, User, Gift } from 'lucide-react'
 
 export default function BottomNav() {
   const location = useLocation()
@@ -8,6 +8,7 @@ export default function BottomNav() {
     { path: '/', icon: MapPin, label: 'Map' },
     { path: '/collection', icon: Grid3x3, label: 'Collection' },
     { path: '/search', icon: Search, label: 'Search' },
+    { path: '/vouchers', icon: Gift, label: 'Vouchers' },
     { path: '/profile', icon: User, label: 'Profile' },
   ]
 

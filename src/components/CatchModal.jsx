@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { getCreatureSprite } from '../lib/creatureSprites.js'
+import { sendVoucherEmail } from '../lib/email.js'
 import { X, Users, Lock } from 'lucide-react'
 
 // Calculate distance between two points using Haversine formula
@@ -99,7 +100,7 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
           }
           return { lon: parseDouble(xHex), lat: parseDouble(yHex) }
         } catch (error) {
-          console.error('Error parsing WKB in modal:', error)
+          // Silently fail - invalid WKB format
           return null
         }
       }
@@ -130,14 +131,13 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
     }
   }
   
-  // Validate coordinates
+  // Validate coordinates - if invalid, modal won't work properly
   if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
-    console.error('CatchModal: Invalid coordinates:', { lat, lon, creature })
+    return null
   }
 
   const handleCatch = async () => {
     if (!userLocation || !lat || !lon) {
-      console.error('Missing location data:', { userLocation, lat, lon, creature })
       setError('Location not available')
       return
     }
@@ -267,7 +267,9 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
               target_creature_type_id, 
               location, 
               radius_meters,
-              target_value
+              target_value,
+              business_id,
+              prize_description
             )
           `)
           .eq('user_id', user.id)
@@ -333,7 +335,53 @@ export default function CatchModal({ creature, userLocation, onClose, onCatch, o
             
             // Wait for all updates to complete
             if (updatePromises.length > 0) {
-              await Promise.all(updatePromises)
+              const results = await Promise.all(updatePromises)
+              
+              // Check if any challenges were completed and send voucher emails
+              for (const result of results) {
+                if (result.success && result.completed) {
+                  // Voucher will be created automatically by database trigger
+                  // Find the voucher and send email automatically for business challenges
+                  try {
+                    // Wait a bit for the database trigger to create the voucher
+                    await new Promise(resolve => setTimeout(resolve, 500))
+                    
+                    // Get the challenge details to check if it's a business challenge
+                    const { data: challengeData } = await supabase
+                      .from('challenges')
+                      .select('business_id, prize_description')
+                      .eq('id', result.challengeId)
+                      .single()
+                    
+                    if (challengeData && challengeData.business_id && challengeData.prize_description) {
+                      // This is a business challenge - find the voucher and send email
+                      const { data: vouchers } = await supabase
+                        .from('vouchers')
+                        .select('id, email_sent')
+                        .eq('user_id', user.id)
+                        .eq('challenge_id', result.challengeId)
+                        .order('issued_at', { ascending: false })
+                        .limit(1)
+                      
+                      if (vouchers && vouchers.length > 0) {
+                        const voucher = vouchers[0]
+                        // Only send email if not already sent
+                        if (!voucher.email_sent) {
+                          try {
+                            await sendVoucherEmail(voucher.id)
+                          } catch (emailError) {
+                            console.error('Error sending voucher email:', emailError)
+                            // Don't fail the catch if email fails - user can resend from vouchers page
+                          }
+                        }
+                      }
+                    }
+                  } catch (voucherError) {
+                    console.error('Error handling voucher after challenge completion:', voucherError)
+                    // Don't fail the catch if voucher handling fails
+                  }
+                }
+              }
             }
           }
         }

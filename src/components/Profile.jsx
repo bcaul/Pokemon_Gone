@@ -1,17 +1,75 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { LogOut, Trophy, Target, Zap, Star } from 'lucide-react'
+import { LogOut, Trophy, Target, Zap, Star, Gift, Store, MapPin, CheckCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 export default function Profile() {
   const [profile, setProfile] = useState(null)
   const [stats, setStats] = useState(null)
+  const [completedChallenges, setCompletedChallenges] = useState([])
   const [loading, setLoading] = useState(true)
+  const [challengesLoading, setChallengesLoading] = useState(true)
   const navigate = useNavigate()
   const subscriptionRef = useRef(null)
 
+  const fetchCompletedChallenges = useCallback(async () => {
+    try {
+      setChallengesLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Fetch completed challenges with full challenge and business details
+      const { data: userChallenges, error } = await supabase
+        .from('user_challenges')
+        .select(`
+          *,
+          challenges (
+            id,
+            name,
+            description,
+            challenge_type,
+            target_value,
+            reward_points,
+            difficulty,
+            business_id,
+            prize_description,
+            businesses:business_id (
+              business_name,
+              business_type
+            ),
+            creature_types:target_creature_type_id (
+              name,
+              rarity
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('completed', true)
+        .order('completed_at', { ascending: false })
+
+      if (error) throw error
+
+      // Transform the data to a more usable format
+      const completed = (userChallenges || [])
+        .filter(uc => uc.challenges) // Only include if challenge exists
+        .map(uc => ({
+          ...uc.challenges,
+          completed_at: uc.completed_at,
+          progress_value: uc.progress_value,
+          user_challenge_id: uc.id,
+        }))
+
+      setCompletedChallenges(completed)
+    } catch (error) {
+      console.error('Error fetching completed challenges:', error)
+    } finally {
+      setChallengesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchProfile()
+    fetchCompletedChallenges()
 
     // Subscribe to profile updates for real-time points updates
     const setupSubscription = async () => {
@@ -34,6 +92,20 @@ export default function Profile() {
             }
           }
         )
+        .on('postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'user_challenges',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            // If a challenge was just completed, refresh completed challenges
+            if (payload.new.completed === true && (payload.old.completed === false || payload.old.completed === null)) {
+              fetchCompletedChallenges()
+            }
+          }
+        )
         .subscribe()
     }
 
@@ -44,7 +116,7 @@ export default function Profile() {
         subscriptionRef.current.unsubscribe()
       }
     }
-  }, [])
+  }, [fetchCompletedChallenges])
 
   const fetchProfile = async () => {
     try {
@@ -103,6 +175,26 @@ export default function Profile() {
       console.error('Error fetching profile:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const formatDistance = (meters) => {
+    if (meters < 1000) {
+      return `${Math.round(meters)}m`
+    }
+    return `${(meters / 1000).toFixed(1)}km`
+  }
+
+  const getChallengeIcon = (type) => {
+    switch (type) {
+      case 'collect':
+        return '🎯'
+      case 'walk':
+        return '🚶'
+      case 'explore':
+        return '🗺️'
+      default:
+        return '📋'
     }
   }
 
@@ -226,7 +318,7 @@ export default function Profile() {
           </div>
 
           {/* Completion Progress */}
-          <div className="bg-surface rounded-2xl p-6">
+          <div className="bg-surface rounded-2xl p-6 mb-6">
             <h3 className="text-xl font-bold text-white mb-4">Collection Progress</h3>
             <div className="flex items-center gap-4">
               <div className="flex-1">
@@ -249,6 +341,109 @@ export default function Profile() {
           </div>
         </>
       )}
+
+      {/* Completed Challenges Section */}
+      <div className="bg-surface rounded-2xl p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <Trophy className="text-primary" size={24} />
+          <h3 className="text-xl font-bold text-white">Completed Challenges</h3>
+          <span className="bg-primary/20 text-primary px-3 py-1 rounded-full text-sm font-semibold">
+            {completedChallenges.length}
+          </span>
+        </div>
+
+        {challengesLoading ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+            <p className="text-gray-400 text-sm">Loading completed challenges...</p>
+          </div>
+        ) : completedChallenges.length === 0 ? (
+          <div className="text-center py-12">
+            <Trophy className="mx-auto text-gray-600 mb-4" size={48} />
+            <p className="text-gray-400 text-lg mb-2">No completed challenges yet</p>
+            <p className="text-gray-500 text-sm">Complete challenges to see them here!</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {completedChallenges.map((challenge) => {
+              const isBusinessChallenge = !!(challenge.business_id && challenge.businesses && challenge.businesses.business_name)
+              
+              return (
+                <div
+                  key={challenge.id}
+                  className={`bg-surface border-2 rounded-lg p-4 ${
+                    isBusinessChallenge 
+                      ? 'border-yellow-400/50 bg-yellow-400/5' 
+                      : 'border-green-500/50 bg-green-500/10'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        {isBusinessChallenge && (
+                          <div className="flex items-center gap-1 px-2 py-1 bg-yellow-400/20 border border-yellow-400/40 rounded-md">
+                            <Store size={12} className="text-yellow-400" />
+                            <span className="text-yellow-400 text-xs font-bold">BUSINESS</span>
+                          </div>
+                        )}
+                        <span className="text-xl">{getChallengeIcon(challenge.challenge_type)}</span>
+                        <h4 className="text-lg font-bold text-white">{challenge.name}</h4>
+                        <CheckCircle className="text-green-400" size={18} />
+                      </div>
+
+                      {isBusinessChallenge && challenge.businesses && (
+                        <div className="mb-2 flex items-center gap-2 px-3 py-1 bg-yellow-400/15 rounded-md border border-yellow-400/30">
+                          <Store size={12} className="text-yellow-400" />
+                          <span className="text-yellow-300 font-semibold text-sm">
+                            {challenge.businesses.business_name}
+                          </span>
+                        </div>
+                      )}
+
+                      <p className="text-gray-400 text-sm mb-3">{challenge.description}</p>
+
+                      <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
+                        <div className="flex items-center gap-1">
+                          <Target size={14} />
+                          <span>
+                            {challenge.target_value}
+                            {challenge.challenge_type === 'collect' 
+                              ? ` ${challenge.creature_types?.name || 'creature'}${challenge.target_value > 1 ? 's' : ''}`
+                              : challenge.challenge_type === 'walk' 
+                              ? ' meters'
+                              : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Trophy size={14} />
+                          <span>{challenge.reward_points} pts</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span>✓</span>
+                          <span>Completed {new Date(challenge.completed_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+
+                      {isBusinessChallenge && challenge.prize_description && (
+                        <div className="mt-3 p-3 bg-yellow-400/10 rounded-lg border border-yellow-400/30">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Gift className="text-yellow-400" size={14} />
+                            <p className="text-yellow-300 font-bold text-xs">PRIZE EARNED</p>
+                          </div>
+                          <p className="text-white text-sm font-semibold">{challenge.prize_description}</p>
+                          <p className="text-yellow-200/70 text-xs mt-1">
+                            Check your Vouchers section to redeem
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -219,16 +219,14 @@ export default function Map() {
     }
   }
 
-  const handleManualSpawn = () => {
-    if (location) {
-      generateSpawnsForLocation(location.latitude, location.longitude)
-    }
-  }
-
+  // Update creature markers
   useEffect(() => {
-    if (!map.current || !mapLoaded) return
+    if (!map.current || !mapLoaded) {
+      return
+    }
 
     if (!creatures || creatures.length === 0) {
+      // Clear existing markers
       markersRef.current.forEach(marker => marker.remove())
       markersRef.current = []
       return
@@ -294,6 +292,11 @@ export default function Map() {
         return
       }
 
+      if (!spawn.location) {
+        return
+      }
+
+      // Try to get coordinates from spawn object first (if query returned them directly)
       let lon, lat
       if (spawn.longitude !== undefined && spawn.latitude !== undefined) {
         lon = parseFloat(spawn.longitude)
@@ -309,7 +312,12 @@ export default function Map() {
         }
       }
       
-      if (!lat || !lon || isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+        return
+      }
+
+      // Verify coordinates are reasonable (not 0,0 or extreme values)
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
         return
       }
 
@@ -535,18 +543,22 @@ export default function Map() {
 
   // Generate challenges near parks
   const generateChallengesForLocation = useCallback(async (lat, lon) => {
-    if (Date.now() - lastChallengeGenRef.current < 5 * 60 * 1000) {
+    const now = Date.now()
+    // Throttle challenge generation (once per 5 minutes)
+    if (now - lastChallengeGenRef.current < 5 * 60 * 1000) {
       return
     }
 
     try {
       setGeneratingChallenges(true)
-      lastChallengeGenRef.current = Date.now()
+      lastChallengeGenRef.current = now
 
       const challengesCreated = await generateChallengesNearParks(lat, lon, 5000)
       if (challengesCreated === 0) {
         await generateChallengesAtLocation(lat, lon, 8)
       }
+
+      // Note: Challenges will refresh automatically via useChallenges hook
     } catch (error) {
       console.error('Error generating challenges:', error)
     } finally {
@@ -559,6 +571,7 @@ export default function Map() {
 
     if (challenges && challenges.length === 0) {
       if (lastChallengeGenRef.current === 0) {
+        // Delay auto-generation slightly to avoid blocking
         const timer = setTimeout(() => {
           generateChallengesForLocation(location.latitude, location.longitude)
         }, 3000)
@@ -567,14 +580,84 @@ export default function Map() {
     }
   }, [location, challenges, mapLoaded, challengesLoading, generatingChallenges, generateChallengesForLocation])
 
-  // Challenge markers disabled - use Challenges button to access
+  // Create challenge marker element
+  const createChallengeMarker = (challenge) => {
+    const el = document.createElement('div')
+    el.className = 'challenge-marker'
+    el.style.width = '32px'
+    el.style.height = '32px'
+    el.style.borderRadius = '50%'
+    el.style.backgroundColor = challenge.completed 
+      ? 'rgba(34, 197, 94, 0.8)' 
+      : challenge.accepted 
+      ? 'rgba(59, 130, 246, 0.8)' 
+      : 'rgba(234, 179, 8, 0.8)'
+    el.style.border = '2px solid white'
+    el.style.display = 'flex'
+    el.style.alignItems = 'center'
+    el.style.justifyContent = 'center'
+    el.style.cursor = 'pointer'
+    el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)'
+    
+    const icon = document.createElement('div')
+    icon.style.fontSize = '18px'
+    icon.innerHTML = challenge.completed ? '🏆' : '🎯'
+    el.appendChild(icon)
+    
+    if (!challenge.accepted && !challenge.completed) {
+      el.style.animation = 'pulse-challenge 2s infinite'
+    }
+    
+    el.title = `${challenge.name} - ${challenge.difficulty}`
+    return el
+  }
+
+  // Update challenge markers
   useEffect(() => {
     if (!map.current || !mapLoaded) return
-    challengeMarkersRef.current.forEach(marker => {
-      try { marker.remove() } catch (e) {}
-    })
+
+    // Clear existing challenge markers
+    challengeMarkersRef.current.forEach(marker => marker.remove())
     challengeMarkersRef.current = []
-  }, [])
+
+    if (!challenges || challenges.length === 0) {
+      return
+    }
+
+    // Filter out completed challenges - they should only appear in Profile
+    const activeChallenges = challenges.filter(challenge => !challenge.completed)
+
+    activeChallenges.forEach((challenge) => {
+      if (!challenge.latitude || !challenge.longitude) {
+        return
+      }
+
+      try {
+        const challengeMarker = createChallengeMarker(challenge)
+        const marker = new mapboxgl.Marker({
+          element: challengeMarker,
+          anchor: 'center',
+        })
+          .setLngLat([challenge.longitude, challenge.latitude])
+          .addTo(map.current)
+
+        challengeMarker.addEventListener('click', (e) => {
+          e.stopPropagation()
+          setSelectedChallenge(challenge)
+          setShowChallengePanel(true)
+        })
+
+        challengeMarkersRef.current.push(marker)
+      } catch (error) {
+        console.error('Error creating challenge marker:', error)
+      }
+    })
+
+    return () => {
+      challengeMarkersRef.current.forEach(marker => marker.remove())
+      challengeMarkersRef.current = []
+    }
+  }, [challenges, mapLoaded])
 
   // Create RSVP badge marker (separate marker to avoid positioning issues)
   const createGymBadgeMarker = (rsvpCount) => {
@@ -921,14 +1004,28 @@ export default function Map() {
     if (!selectedChallenge || !challenges || challenges.length === 0) return
     
     const updatedChallenge = challenges.find(c => c.id === selectedChallenge.id)
-    if (updatedChallenge && (
-      updatedChallenge.progress_value !== selectedChallenge.progress_value || 
-      updatedChallenge.completed !== selectedChallenge.completed
-    )) {
-      console.log(`📊 Updating selected challenge progress: ${updatedChallenge.progress_value}/${updatedChallenge.target_value} (was ${selectedChallenge.progress_value}/${selectedChallenge.target_value})`)
-      setSelectedChallenge(updatedChallenge)
+    if (updatedChallenge) {
+      // If challenge was just completed, close the panel (it will move to Profile)
+      if (updatedChallenge.completed && !selectedChallenge.completed) {
+        setSelectedChallenge(null)
+        setShowChallengePanel(false)
+        return
+      }
+      
+      // Otherwise, update progress if it changed
+      if (
+        updatedChallenge.progress_value !== selectedChallenge.progress_value || 
+        updatedChallenge.completed !== selectedChallenge.completed
+      ) {
+        setSelectedChallenge(updatedChallenge)
+      }
+    } else if (selectedChallenge.completed) {
+      // Challenge is completed and no longer in the active challenges list
+      // Close the panel
+      setSelectedChallenge(null)
+      setShowChallengePanel(false)
     }
-  }, [challenges]) // Only depend on challenges array
+  }, [challenges, selectedChallenge]) // Depend on both challenges and selectedChallenge
 
   const handleCloseModal = useCallback(() => {
     setSelectedCreature(null)
@@ -943,23 +1040,13 @@ export default function Map() {
 
   const handleChallengeUpdate = useCallback(() => {
     // Refresh challenges immediately after a catch to update progress
-    console.log('🔄 Refreshing challenges after catch...')
     if (refetchChallenges) {
       // Add a small delay to ensure database has updated
       setTimeout(async () => {
         await refetchChallenges()
-        console.log('✅ Challenges refreshed')
-        
-        // Update selected challenge if it exists to show new progress
-        if (selectedChallenge) {
-          // Find the updated challenge in the refreshed list
-          setTimeout(() => {
-            // This will be handled by the challenges update effect
-          }, 100)
-        }
       }, 500)
     }
-  }, [refetchChallenges, selectedChallenge])
+  }, [refetchChallenges])
 
   if (!mapboxgl.accessToken) {
     return (
@@ -1092,7 +1179,7 @@ export default function Map() {
         <Target size={20} />
         {challenges && challenges.length > 0 && (
           <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-            {challenges.filter(c => !c.completed).length}
+            {challenges ? challenges.filter(c => !c.completed).length : 0}
           </span>
         )}
       </button>

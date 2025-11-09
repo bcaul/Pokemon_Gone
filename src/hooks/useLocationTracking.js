@@ -32,7 +32,6 @@ export function useLocationTracking(location) {
       // Maximum 500 meters to filter out unrealistic GPS jumps
       if (distance >= 3 && distance < 500) {
         distanceTraveledRef.current += distance
-        console.log(`Distance traveled: ${distanceTraveledRef.current.toFixed(2)}m (segment: ${distance.toFixed(2)}m)`)
       } else if (distance >= 500) {
         console.warn(`GPS jump detected: ${distance.toFixed(2)}m - ignoring`)
       }
@@ -63,7 +62,6 @@ export function useLocationTracking(location) {
               location.longitude,
               distanceToUpdate
             )
-            console.log(`Updated walking challenges: ${distanceToUpdate.toFixed(2)}m`)
             distanceTraveledRef.current = 0 // Reset after updating
             lastUpdateTimeRef.current = now
           }
