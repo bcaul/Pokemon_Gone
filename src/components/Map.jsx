@@ -1112,66 +1112,9 @@ export default function Map() {
         </div>
       )}
 
-<<<<<<< HEAD
-      {/* Debug info and manual spawn button (for testing) */}
-      {location && (
-        <div className="absolute bottom-24 right-4 bg-surface/90 text-white px-4 py-2 rounded-lg shadow-lg z-50 max-w-xs" style={{ zIndex: 1050 }}>
-          <div className="text-xs mb-2 space-y-1">
-            <div className="font-bold">Creatures nearby: {creatures?.length || 0}</div>
-            <div className="text-gray-400">
-              Markers created: {markersRef.current.length}
-            </div>
-            {spawnDebugInfo && (
-              <div className="mt-1 text-gray-400">
-                <div>Last spawn: {spawnDebugInfo.generated || 0} generated</div>
-                {spawnDebugInfo.inPark && (
-                  <div className="text-green-400">🌳 In park (boosted)</div>
-                )}
-                {spawnDebugInfo.countryCode && (
-                  <div>Country: {spawnDebugInfo.countryCode}</div>
-                )}
-                {spawnDebugInfo.error && (
-                  <div className="text-red-400">Error: {spawnDebugInfo.error}</div>
-                )}
-              </div>
-            )}
-            {creatures && creatures.length > 0 && (
-              <div className="mt-2 text-gray-300">
-                <div className="font-semibold mb-1">Creatures:</div>
-                {creatures.slice(0, 3).map((c, i) => (
-                  <div key={i} className="text-xs">
-                    {c.creature_types?.name || 'Unknown'} ({c.creature_types?.rarity || '?'})
-                  </div>
-                ))}
-                {creatures.length > 3 && (
-                  <div className="text-xs text-gray-500">+{creatures.length - 3} more</div>
-                )}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={handleManualSpawn}
-            disabled={spawnGenerating}
-            className="w-full bg-primary hover:bg-primary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50 mb-2"
-            style={{ zIndex: 1050 }}
-          >
-            {spawnGenerating ? 'Generating...' : 'Generate Spawns'}
-          </button>
-          <button
-            onClick={() => location && generateChallengesForLocation(location.latitude, location.longitude)}
-            disabled={generatingChallenges}
-            className="w-full bg-secondary hover:bg-secondary/90 text-white text-xs py-1 px-2 rounded transition-colors disabled:opacity-50"
-            style={{ zIndex: 1050 }}
-          >
-            {generatingChallenges ? 'Generating Challenges...' : 'Generate Challenges'}
-          </button>
-        </div>
-      )}
-
       {/* Challenges Button - Left side of map */}
       <button
-        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
-        style={{ zIndex: 1050 }}
+        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
         onClick={() => setShowChallengePanel(true)}
         title="View Challenges"
         aria-label="View nearby challenges"
@@ -1186,8 +1129,7 @@ export default function Map() {
 
       {/* Gyms Button - Left side of map */}
       <button
-        className="absolute bottom-48 left-4 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
-        style={{ zIndex: 1050 }}
+        className="absolute bottom-48 left-4 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg z-10 flex items-center gap-2"
         onClick={() => setShowGymPanel(true)}
         title="View Gyms"
         aria-label="View nearby gyms"
