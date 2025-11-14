@@ -1180,7 +1180,7 @@ export default function Map() {
 
       {/* Challenges Button - Left side of map */}
       <button
-        className="absolute bottom-32 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
+        className="absolute bottom-36 md:bottom-40 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
         style={{ zIndex: 1050 }}
         onClick={() => setShowChallengePanel(true)}
         title="View Challenges"
@@ -1196,7 +1196,7 @@ export default function Map() {
 
       {/* Gyms Button - Left side of map */}
       <button
-        className="absolute bottom-48 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
+        className="absolute bottom-52 md:bottom-56 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
         style={{ zIndex: 1050 }}
         onClick={() => setShowGymPanel(true)}
         title="View Gyms"
@@ -1213,7 +1213,7 @@ export default function Map() {
       {/* My Location Button - Bottom left, under Challenges button */}
       {location && mapLoaded && (
         <button
-          className="absolute bottom-16 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
+          className="absolute bottom-20 md:bottom-24 left-4 bg-primary hover:bg-primary/90 text-white p-3 rounded-full shadow-lg flex items-center gap-2"
           style={{ zIndex: 1050 }}
           onClick={centerOnUserLocation}
           title="Center map on your location"

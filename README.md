@@ -183,7 +183,7 @@ The app is optimized for mobile devices:
 
 ## License
 
-MIT License - feel free to use this for your hackathon project!
+MIT License 
 
 ## Adding Gyms
 
@@ -193,11 +193,3 @@ Quick steps:
 1. Edit coordinates in `supabase/migrations/012_add_sample_gyms.sql`
 2. Run migrations 012 and 013 in Supabase SQL Editor
 3. Gyms will appear on the map with epic/legendary creatures
-
-## Support
-
-For issues or questions, please open an issue on GitHub.
-
----
-
-Built with ❤️ for hackathons and location-based gaming
